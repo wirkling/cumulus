@@ -49,6 +49,22 @@ importers:
         specifier: ^5.6.2
         version: 5.9.3
 
+  apps/node-agent:
+    dependencies:
+      '@cumulus/shared-types':
+        specifier: workspace:*
+        version: link:../../packages/shared-types
+    devDependencies:
+      '@types/node':
+        specifier: ^20.16.5
+        version: 20.19.41
+      tsx:
+        specifier: ^4.19.1
+        version: 4.22.4
+      typescript:
+        specifier: ^5.6.2
+        version: 5.9.3
+
   packages/db:
     dependencies:
       '@cumulus/orchestration':
