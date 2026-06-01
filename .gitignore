@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+.next/
+out/
+
+# Env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Agent local state (per-node id + token written at runtime)
+.agent-state.json
+apps/node-agent/.agent-state.json
+
+# Terraform
+infra/terraform/.terraform/
+infra/terraform/*.tfstate
+infra/terraform/*.tfstate.*
+infra/terraform/.terraform.lock.hcl
+infra/terraform/*.tfvars
+!infra/terraform/*.tfvars.example
+
+# Logs / OS
+*.log
+.DS_Store
+
+# Test / coverage
+coverage/
