@@ -132,6 +132,12 @@ export async function listPlaceableJobs(): Promise<Job[]> {
   return rows.map(mapJob);
 }
 
+export async function listRecentJobs(limit = 100): Promise<Job[]> {
+  const sql = getSql();
+  const rows = await sql`select * from jobs order by created_at desc limit ${limit}`;
+  return rows.map(mapJob);
+}
+
 export async function setJobStatus(id: string, status: JobStatus): Promise<void> {
   const sql = getSql();
   await sql`update jobs set status = ${status}, updated_at = now() where id = ${id}`;
