@@ -1,0 +1,57 @@
+#cloud-config
+# Bootstraps a fleet node: Node + pnpm, clone, run the outbound-only agent under
+# systemd. No inbound ports are opened (spec §3.1) — the agent dials out to the
+# control plane. The same unit runs unchanged on a Mac mini later (spec §6).
+write_files:
+  - path: /etc/cumulus/agent.env
+    encoding: b64
+    permissions: "0600"
+    content: ${node_env_b64}
+
+  - path: /etc/systemd/system/cumulus-agent.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Cumulus node agent
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      WorkingDirectory=/opt/cumulus
+      EnvironmentFile=/etc/cumulus/agent.env
+      Environment=AGENT_STATE_FILE=/var/lib/cumulus/agent-state.json
+      ExecStart=/bin/bash -lc 'pnpm --filter @cumulus/node-agent start'
+      Restart=always
+      RestartSec=3
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /root/bootstrap.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euxo pipefail
+
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y curl git ca-certificates gnupg
+
+      curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+      apt-get install -y nodejs
+      corepack enable
+      corepack prepare pnpm@9.12.0 --activate
+
+      rm -rf /opt/cumulus
+      git clone --branch "${repo_branch}" --depth 1 "${repo_clone_url}" /opt/cumulus
+      cd /opt/cumulus
+      pnpm install --prod=false
+
+      mkdir -p /var/lib/cumulus
+      systemctl daemon-reload
+      systemctl enable --now cumulus-agent
+      echo "Cumulus node agent started"
+
+runcmd:
+  - ["/bin/bash", "/root/bootstrap.sh"]

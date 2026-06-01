@@ -1,0 +1,19 @@
+# Copy to terraform.tfvars (gitignored) and fill in. Never commit real secrets.
+
+hcloud_token   = "your-hetzner-cloud-token"
+ssh_public_key = "ssh-ed25519 AAAA... you@host"
+
+# Private repo? Embed a GitHub token with read access:
+#   repo_clone_url = "https://x-access-token:ghp_xxx@github.com/wirkling/cumulus.git"
+repo_clone_url = "https://github.com/wirkling/cumulus.git"
+repo_branch    = "main"
+
+# Fleet: one node per entry, spread across ≥2 regions (spec DoD).
+node_locations = ["fsn1", "hel1", "fsn1"]
+
+# Secrets injected into the API host env (server-side only).
+database_url              = "postgresql://postgres:PASSWORD@db.REF.supabase.co:5432/postgres"
+supabase_url              = "https://REF.supabase.co"
+supabase_service_role_key = "your-service-role-key"
+agent_bootstrap_token     = "generate-with: openssl rand -hex 32"
+operator_api_key          = "generate-with: openssl rand -hex 32"

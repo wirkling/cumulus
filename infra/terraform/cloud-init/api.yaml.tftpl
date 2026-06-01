@@ -1,0 +1,78 @@
+#cloud-config
+# Bootstraps the always-on control plane: Node + pnpm, clone, migrate, run under
+# systemd, with Caddy terminating TLS on a sslip.io hostname (spec §1, §0a-13).
+write_files:
+  - path: /etc/cumulus/api.env
+    encoding: b64
+    permissions: "0600"
+    content: ${api_env_b64}
+
+  - path: /etc/systemd/system/cumulus-api.service
+    permissions: "0644"
+    content: |
+      [Unit]
+      Description=Cumulus control plane API
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=simple
+      WorkingDirectory=/opt/cumulus
+      EnvironmentFile=/etc/cumulus/api.env
+      ExecStart=/bin/bash -lc 'pnpm --filter @cumulus/api start'
+      Restart=always
+      RestartSec=3
+
+      [Install]
+      WantedBy=multi-user.target
+
+  - path: /root/bootstrap.sh
+    permissions: "0755"
+    content: |
+      #!/usr/bin/env bash
+      set -euxo pipefail
+
+      export DEBIAN_FRONTEND=noninteractive
+      apt-get update
+      apt-get install -y curl git ca-certificates gnupg debian-keyring debian-archive-keyring apt-transport-https
+
+      # Node 20 (NodeSource) + pnpm via corepack
+      curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+      apt-get install -y nodejs
+      corepack enable
+      corepack prepare pnpm@9.12.0 --activate
+
+      # Caddy (official apt repo) for automatic TLS
+      curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+      curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' > /etc/apt/sources.list.d/caddy-stable.list
+      apt-get update
+      apt-get install -y caddy
+
+      # Clone + install (force dev deps so tsx is available)
+      rm -rf /opt/cumulus
+      git clone --branch "${repo_branch}" --depth 1 "${repo_clone_url}" /opt/cumulus
+      cd /opt/cumulus
+      pnpm install --prod=false
+
+      # Apply DB migrations using the API env (DATABASE_URL etc.)
+      set -a; . /etc/cumulus/api.env; set +a
+      pnpm --filter @cumulus/db migrate
+
+      # Configure Caddy on this host's public IP via sslip.io (dashed form)
+      PUBLIC_IP="$(curl -s https://api.ipify.org)"
+      DASHED="$(echo "$PUBLIC_IP" | tr '.' '-')"
+      DOMAIN="$DASHED.sslip.io"
+      cat > /etc/caddy/Caddyfile <<EOF
+      $DOMAIN {
+        reverse_proxy localhost:8080
+      }
+      EOF
+      systemctl restart caddy
+
+      # Start the API
+      systemctl daemon-reload
+      systemctl enable --now cumulus-api
+      echo "Cumulus API up at https://$DOMAIN"
+
+runcmd:
+  - ["/bin/bash", "/root/bootstrap.sh"]
