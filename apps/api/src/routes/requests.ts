@@ -3,7 +3,7 @@
  * completion. v1 keeps these internal (no customer auth, spec §7.3). */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { orchestration } from '@cumulus/db';
+import { orchestration, nodes } from '@cumulus/db';
 import { WORKLOADS } from '@cumulus/shared-types';
 import type { RequestDetail, RequestJobView } from '@cumulus/shared-types';
 import { decomposeRequest, requiredCapabilitiesFor } from '@cumulus/orchestration';
@@ -36,10 +36,17 @@ async function buildRequestDetail(requestId: string): Promise<RequestDetail | nu
   if (!req) return null;
   const jobs = await orchestration.listJobsForRequest(requestId);
   const attempts = await orchestration.getLatestAttemptsByJob(jobs.map((j) => j.id));
-  const jobViews: RequestJobView[] = jobs.map((j) => ({
-    ...j,
-    latestAttempt: attempts.get(j.id),
-  }));
+  // Denormalize node names for the dashboard scatter view.
+  const nodeList = await nodes.listNodes();
+  const nodeNames = new Map(nodeList.map((n) => [n.id, n.name]));
+  const jobViews: RequestJobView[] = jobs.map((j) => {
+    const latestAttempt = attempts.get(j.id);
+    return {
+      ...j,
+      latestAttempt,
+      nodeName: latestAttempt ? nodeNames.get(latestAttempt.nodeId) : undefined,
+    };
+  });
   return { ...req, jobs: jobViews };
 }
 

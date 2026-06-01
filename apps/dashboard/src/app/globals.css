@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-ink text-gray-200;
+  font-feature-settings: 'tnum';
+}
+
+.card {
+  @apply rounded-lg border border-edge bg-panel p-4;
+}
+.btn {
+  @apply rounded border border-edge bg-edge/40 px-3 py-1.5 text-sm hover:bg-edge transition-colors disabled:opacity-40;
+}
+.pill {
+  @apply inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium;
+}
+th {
+  @apply text-left font-medium text-muted;
+}
+td, th {
+  @apply px-3 py-2 align-middle;
+}
+.tabular tbody tr {
+  @apply border-t border-edge;
+}
