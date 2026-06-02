@@ -36,7 +36,7 @@ variable "api_location" {
 variable "node_server_type" {
   description = "Server type for disposable fleet nodes."
   type        = string
-  default     = "cpx11" # cheap, disposable
+  default     = "cx23" # cheap, disposable (cpx11 retired by Hetzner; cx23 ≈ €3.99/mo)
 }
 
 variable "node_locations" {
