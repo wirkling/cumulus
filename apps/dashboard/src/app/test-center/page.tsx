@@ -1,8 +1,54 @@
 'use client';
 import { Fragment, useEffect, useState } from 'react';
 import Link from 'next/link';
-import type { QaRun, QaRunDetail, QaResult, QaSuite, Customer } from '@cumulus/shared-types';
+import type { QaRun, QaRunDetail, QaResult, QaSuite, Customer, FleetSnapshotNode } from '@cumulus/shared-types';
 import { usePoll, statusClass, timeAgo } from '@/lib/ui';
+import { GroupedBars, HBars, StackedBar } from '@/lib/charts';
+
+function RunCharts({ results, fleet }: { results: QaResult[]; fleet: FleetSnapshotNode[] }) {
+  if (results.length === 0) return null;
+  const nameOf = new Map(fleet.map((n) => [n.nodeId, n.name.replace('cumulus-node-', 'node-')]));
+
+  // Aggregate per-node job distribution across all scenarios in the run.
+  const dist = new Map<string, number>();
+  for (const r of results) {
+    for (const [nodeId, n] of Object.entries(r.metrics.perNodeJobs ?? {})) {
+      dist.set(nodeId, (dist.get(nodeId) ?? 0) + n);
+    }
+  }
+  const segments = [...dist.entries()]
+    .map(([id, value]) => ({ label: nameOf.get(id) ?? id.slice(0, 6), value }))
+    .sort((a, b) => b.value - a.value);
+
+  return (
+    <div className="grid gap-4 p-4 md:grid-cols-2">
+      <div>
+        <div className="mb-1 text-sm font-medium">Latency by use case (lower is better)</div>
+        <GroupedBars
+          groups={results.map((r) => ({
+            label: r.useCase,
+            values: { p50: r.latencyP50Ms ?? 0, p95: r.latencyP95Ms ?? 0 },
+          }))}
+          series={[
+            { key: 'p50', label: 'p50 ms' },
+            { key: 'p95', label: 'p95 ms', color: '#f59e0b' },
+          ]}
+          unit="ms"
+        />
+      </div>
+      <div>
+        <div className="mb-1 text-sm font-medium">Throughput by use case (higher is better)</div>
+        <HBars rows={results.map((r) => ({ label: r.useCase, value: r.throughputPerSec ?? 0 }))} unit="/s" />
+        {segments.length > 0 && (
+          <div className="mt-4">
+            <div className="mb-1 text-sm font-medium">Work distribution across the pool</div>
+            <StackedBar segments={segments} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
 function fmtMs(ms?: number): string {
   if (ms == null) return '—';
@@ -92,7 +138,10 @@ function RunDetail({ runId }: { runId: string }) {
           suite {data.suiteVersion} · {data.fleetSnapshot.length} nodes · {timeAgo(data.startedAt)}
         </span>
       </div>
-      <ScenarioTable results={data.results} />
+      <RunCharts results={data.results} fleet={data.fleetSnapshot} />
+      <div className="border-t border-edge">
+        <ScenarioTable results={data.results} />
+      </div>
     </div>
   );
 }

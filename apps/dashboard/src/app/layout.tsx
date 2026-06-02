@@ -13,6 +13,7 @@ const nav = [
   { href: '/requests', label: 'Requests' },
   { href: '/benchmarks', label: 'Benchmarks' },
   { href: '/test-center', label: 'Test Center' },
+  { href: '/report', label: 'Report' },
   { href: '/customers', label: 'Customers' },
 ];
 

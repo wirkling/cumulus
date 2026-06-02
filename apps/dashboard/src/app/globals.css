@@ -29,3 +29,20 @@ td, th {
 .tabular tbody tr {
   @apply border-t border-edge;
 }
+
+/* Print: drop chrome + controls so the report exports clean to PDF. */
+@media print {
+  header,
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #fff;
+    color: #000;
+  }
+  .card {
+    border-color: #ccc;
+    background: #fff;
+    break-inside: avoid;
+  }
+}
