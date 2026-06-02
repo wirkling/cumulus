@@ -4,6 +4,7 @@ import Link from 'next/link';
 import type { QaRun, QaRunDetail, QaResult, QaSuite, Customer, FleetSnapshotNode } from '@cumulus/shared-types';
 import { usePoll, statusClass, timeAgo } from '@/lib/ui';
 import { GroupedBars, HBars, StackedBar } from '@/lib/charts';
+import { DEFAULT_TARGETS } from '@/lib/report';
 
 function RunCharts({ results, fleet }: { results: QaResult[]; fleet: FleetSnapshotNode[] }) {
   if (results.length === 0) return null;
@@ -34,11 +35,18 @@ function RunCharts({ results, fleet }: { results: QaResult[]; fleet: FleetSnapsh
             { key: 'p95', label: 'p95 ms', color: '#f59e0b' },
           ]}
           unit="ms"
+          target={DEFAULT_TARGETS.sloP95Ms}
+          targetLabel="SLO"
         />
       </div>
       <div>
         <div className="mb-1 text-sm font-medium">Throughput by use case (higher is better)</div>
-        <HBars rows={results.map((r) => ({ label: r.useCase, value: r.throughputPerSec ?? 0 }))} unit="/s" />
+        <HBars
+          rows={results.map((r) => ({ label: r.useCase, value: r.throughputPerSec ?? 0 }))}
+          unit="/s"
+          target={DEFAULT_TARGETS.minThroughputPerSec}
+          higherIsBetter
+        />
         {segments.length > 0 && (
           <div className="mt-4">
             <div className="mb-1 text-sm font-medium">Work distribution across the pool</div>
