@@ -61,7 +61,9 @@ export function registerRequestRoutes(app: FastifyInstance): void {
     const request = await orchestration.createRequest({
       workloadType: body.workloadType,
       fanOut: body.fanOut,
-      originLocation: body.originLocation,
+      // The schema requires lat/lng as numbers at runtime; pin the type so the
+      // build doesn't depend on zod-version-specific inference of the optional.
+      originLocation: body.originLocation as { lat: number; lng: number; label?: string } | undefined,
       mergeStrategy: body.mergeStrategy ?? def.defaultMergeStrategy,
       completionPolicy: body.completionPolicy ?? 'wait_for_all',
       quorum: body.quorum,
