@@ -3,17 +3,21 @@
  * is recorded in the operator_actions audit log (spec §14.1). */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { nodes, orchestration, events } from '@cumulus/db';
+import { nodes, orchestration, events, customers, qa } from '@cumulus/db';
 import type {
   Node,
   NodeStatus,
   NodeSummary,
   NodeDetail,
+  CustomerWithKey,
+  QaRunDetail,
 } from '@cumulus/shared-types';
-import { authenticateOperator } from '../auth.js';
+import { QA_SUITE_V1 } from '@cumulus/shared-types';
+import { authenticateOperator, mintCustomerKey } from '../auth.js';
 import { parseOr400 } from '../validate.js';
 import { enqueueDirective } from '../services/directives.js';
 import { dispatchPlaceableJobs } from '../services/placement.js';
+import { launchQaRun } from '../services/qa-runner.js';
 
 const ACTOR = 'operator'; // single operator identity in v1
 
@@ -142,5 +146,53 @@ export function registerOperatorRoutes(app: FastifyInstance): void {
     });
     await dispatchPlaceableJobs(req.log);
     return reply.send({ ok: true });
+  });
+
+  // ── Customers (front door key management) ────────────────────────────────────
+  const createCustomerSchema = z.object({ name: z.string().min(1).max(120) });
+
+  app.post('/api/operator/customers', async (req, reply) => {
+    const body = parseOr400(createCustomerSchema, req.body, reply);
+    if (!body) return;
+    const { key, hash, prefix } = mintCustomerKey();
+    const customer = await customers.createCustomer({
+      name: body.name,
+      apiKeyHash: hash,
+      keyPrefix: prefix,
+    });
+    // The full key is returned exactly once.
+    const res: CustomerWithKey = { ...customer, apiKey: key };
+    return reply.code(201).send(res);
+  });
+
+  app.get('/api/operator/customers', async (_req, reply) => {
+    return reply.send(await customers.listCustomers());
+  });
+
+  // ── QA / Test Center ─────────────────────────────────────────────────────────
+  app.get('/api/operator/qa/suite', async (_req, reply) => reply.send(QA_SUITE_V1));
+
+  const launchSchema = z.object({
+    envLabel: z.string().min(1).max(80),
+    scenarioKeys: z.array(z.string()).optional(),
+  });
+
+  app.post('/api/operator/qa/runs', async (req, reply) => {
+    const body = parseOr400(launchSchema, req.body, reply);
+    if (!body) return;
+    const runId = await launchQaRun(body.envLabel, body.scenarioKeys, req.log);
+    return reply.code(201).send({ runId });
+  });
+
+  app.get('/api/operator/qa/runs', async (_req, reply) => {
+    return reply.send(await qa.listQaRuns());
+  });
+
+  app.get<{ Params: { id: string } }>('/api/operator/qa/runs/:id', async (req, reply) => {
+    const run = await qa.getQaRun(req.params.id);
+    if (!run) return reply.code(404).send({ error: 'not_found', message: 'run not found' });
+    const results = await qa.listQaResults(run.id);
+    const detail: QaRunDetail = { ...run, results };
+    return reply.send(detail);
   });
 }

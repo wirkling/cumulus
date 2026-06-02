@@ -5,7 +5,7 @@
  */
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { FastifyReply, FastifyRequest } from 'fastify';
-import { nodes } from '@cumulus/db';
+import { nodes, customers } from '@cumulus/db';
 import { config } from './config.js';
 
 export function mintToken(): string {
@@ -14,6 +14,13 @@ export function mintToken(): string {
 
 export function hashToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
+}
+
+/** Mint a customer API key. Returns the full key (shown once), its hash, and a
+ * display prefix. Format: ck_live_<hex>. */
+export function mintCustomerKey(): { key: string; hash: string; prefix: string } {
+  const key = `ck_live_${randomBytes(24).toString('hex')}`;
+  return { key, hash: hashToken(key), prefix: key.slice(0, 16) };
 }
 
 function safeEqual(a: string, b: string): boolean {
@@ -33,6 +40,7 @@ function bearer(req: FastifyRequest): string | undefined {
 declare module 'fastify' {
   interface FastifyRequest {
     nodeId?: string;
+    customerId?: string;
   }
 }
 
@@ -73,6 +81,24 @@ export async function authenticateBootstrap(
   if (!token || !safeEqual(token, config.agentBootstrapToken)) {
     await reply.code(401).send({ error: 'unauthorized', message: 'invalid bootstrap token' });
   }
+}
+
+/** preHandler for the public /v1/* API — resolves a customer API key. */
+export async function authenticateCustomer(
+  req: FastifyRequest,
+  reply: FastifyReply,
+): Promise<void> {
+  const key = bearer(req) ?? (req.headers['x-api-key'] as string | undefined);
+  if (!key) {
+    await reply.code(401).send({ error: 'unauthorized', message: 'missing API key' });
+    return;
+  }
+  const customer = await customers.findCustomerByKeyHash(hashToken(key));
+  if (!customer) {
+    await reply.code(401).send({ error: 'unauthorized', message: 'invalid API key' });
+    return;
+  }
+  req.customerId = customer.id;
 }
 
 /** preHandler for /api/operator/* — gated by the operator API key. */

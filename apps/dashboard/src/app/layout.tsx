@@ -12,6 +12,8 @@ const nav = [
   { href: '/submit', label: 'Submit' },
   { href: '/requests', label: 'Requests' },
   { href: '/benchmarks', label: 'Benchmarks' },
+  { href: '/test-center', label: 'Test Center' },
+  { href: '/customers', label: 'Customers' },
 ];
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

@@ -28,6 +28,7 @@ export async function createRequest(
     quorum?: number;
     originLocation?: { lat: number; lng: number; label?: string };
     customerId?: string;
+    qaRunId?: string;
   },
 ): Promise<JobRequest> {
   const sql = getSql();
@@ -35,16 +36,41 @@ export async function createRequest(
     insert into requests
       (workload_type, fan_out, origin_lat, origin_lng, origin_label, merge_strategy,
        completion_policy, quorum, on_partial, timeout_seconds, input, customer_id, priority,
-       status, deadline_at)
+       status, deadline_at, qa_run_id)
     values
       (${body.workloadType}, ${body.fanOut}, ${body.originLocation?.lat ?? null},
        ${body.originLocation?.lng ?? null}, ${body.originLocation?.label ?? null},
        ${body.mergeStrategy}, ${body.completionPolicy}, ${body.quorum ?? null},
        ${body.onPartial}, ${body.timeoutSeconds}, ${sql.json(toJson(body.input))},
        ${body.customerId ?? null}, ${body.priority}, 'queued',
-       now() + (${body.timeoutSeconds} * interval '1 second'))
+       now() + (${body.timeoutSeconds} * interval '1 second'), ${body.qaRunId ?? null})
     returning *`;
   return mapRequest(rows[0]!);
+}
+
+/** Fetch a batch of requests by id (for QA latency aggregation). */
+export async function getRequestsByIds(ids: string[]): Promise<JobRequest[]> {
+  if (ids.length === 0) return [];
+  const sql = getSql();
+  const rows = await sql`select * from requests where id in ${sql(ids)}`;
+  return rows.map(mapRequest);
+}
+
+/** Count completed job attempts per node across a set of requests (distribution). */
+export async function nodeDistributionForRequests(
+  requestIds: string[],
+): Promise<Record<string, number>> {
+  if (requestIds.length === 0) return {};
+  const sql = getSql();
+  const rows = await sql<{ node_id: string; n: number }[]>`
+    select a.node_id, count(*)::int as n
+    from job_attempts a
+    join jobs j on j.id = a.job_id
+    where j.request_id in ${sql(requestIds)} and a.status = 'completed'
+    group by a.node_id`;
+  const out: Record<string, number> = {};
+  for (const r of rows) out[String(r.node_id)] = Number(r.n);
+  return out;
 }
 
 export async function getRequest(id: string): Promise<JobRequest | null> {

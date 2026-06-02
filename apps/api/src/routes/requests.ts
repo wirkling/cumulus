@@ -4,14 +4,11 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import { orchestration, nodes } from '@cumulus/db';
-import { WORKLOADS } from '@cumulus/shared-types';
 import type { RequestDetail, RequestJobView } from '@cumulus/shared-types';
-import { decomposeRequest, requiredCapabilitiesFor } from '@cumulus/orchestration';
 import { parseOr400 } from '../validate.js';
-import { dispatchPlaceableJobs } from '../services/placement.js';
-import { finalizeRequest } from '../services/completion.js';
+import { submitAndDispatch } from '../services/submit.js';
 
-const submitSchema = z
+export const submitSchema = z
   .object({
     workloadType: z.enum(['echo_sleep', 'cpu_benchmark', 'split_map_merge']),
     fanOut: z.number().int().min(1).max(100),
@@ -31,7 +28,7 @@ const submitSchema = z
     path: ['quorum'],
   });
 
-async function buildRequestDetail(requestId: string): Promise<RequestDetail | null> {
+export async function buildRequestDetail(requestId: string): Promise<RequestDetail | null> {
   const req = await orchestration.getRequest(requestId);
   if (!req) return null;
   const jobs = await orchestration.listJobsForRequest(requestId);
@@ -54,48 +51,16 @@ export function registerRequestRoutes(app: FastifyInstance): void {
   app.post('/api/requests', async (req, reply) => {
     const body = parseOr400(submitSchema, req.body, reply);
     if (!body) return;
-
-    const def = WORKLOADS[body.workloadType];
-    const timeoutSeconds = body.timeoutSeconds ?? def.defaultTimeoutSeconds;
-
-    const request = await orchestration.createRequest({
-      workloadType: body.workloadType,
-      fanOut: body.fanOut,
-      // The schema requires lat/lng as numbers at runtime; pin the type so the
-      // build doesn't depend on zod-version-specific inference of the optional.
-      originLocation: body.originLocation as { lat: number; lng: number; label?: string } | undefined,
-      mergeStrategy: body.mergeStrategy ?? def.defaultMergeStrategy,
-      completionPolicy: body.completionPolicy ?? 'wait_for_all',
-      quorum: body.quorum,
-      onPartial: body.onPartial ?? 'fail',
-      timeoutSeconds,
-      priority: body.priority ?? 'normal',
-      input: body.input ?? {},
-      customerId: 'internal', // single internal customer in v1 (spec §5)
-    });
-
-    const shards = decomposeRequest(request);
-    await orchestration.createJobs(
-      request.id,
-      request.workloadType,
-      shards,
-      requiredCapabilitiesFor(request.workloadType),
-      2, // maxRetries
-      timeoutSeconds,
+    const request = await submitAndDispatch(
+      {
+        ...body,
+        input: body.input ?? {},
+        originLocation: body.originLocation as { lat: number; lng: number; label?: string } | undefined,
+        customerId: 'internal', // single internal customer (spec §5)
+      },
+      req.log,
     );
-    await orchestration.setRequestStatus(request.id, 'running');
-
-    // Place immediately for a snappy demo; the dispatch sweep is the safety net.
-    await dispatchPlaceableJobs(req.log);
-    // A zero-shard / already-resolvable request shouldn't hang.
-    await finalizeRequest(request.id, req.log);
-
-    req.log.info(
-      { requestId: request.id, workload: request.workloadType, shards: shards.length },
-      'request submitted',
-    );
-    const detail = await buildRequestDetail(request.id);
-    return reply.code(201).send(detail);
+    return reply.code(201).send(await buildRequestDetail(request.id));
   });
 
   app.get<{ Params: { id: string } }>('/api/requests/:id', async (req, reply) => {

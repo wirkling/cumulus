@@ -14,6 +14,9 @@ import type {
   JobAttempt,
   UsageEvent,
   OperatorAction,
+  Customer,
+  QaRun,
+  QaResult,
 } from '@cumulus/shared-types';
 
 type Row = Record<string, unknown>;
@@ -178,6 +181,47 @@ export function mapUsageEvent(r: Row): UsageEvent {
     unit: String(r.unit),
     occurredAt: iso(r.occurred_at),
     metadata: (r.metadata as Record<string, unknown>) ?? undefined,
+  };
+}
+
+export function mapCustomer(r: Row): Customer {
+  return {
+    id: String(r.id),
+    name: String(r.name),
+    keyPrefix: String(r.key_prefix),
+    status: r.status as Customer['status'],
+    createdAt: iso(r.created_at),
+  };
+}
+
+export function mapQaRun(r: Row): QaRun {
+  return {
+    id: String(r.id),
+    suiteVersion: String(r.suite_version),
+    envLabel: String(r.env_label),
+    status: r.status as QaRun['status'],
+    fleetSnapshot: (r.fleet_snapshot as QaRun['fleetSnapshot']) ?? [],
+    summary: (r.summary as QaRun['summary']) ?? undefined,
+    startedAt: iso(r.started_at),
+    finishedAt: isoOpt(r.finished_at),
+  };
+}
+
+export function mapQaResult(r: Row): QaResult {
+  return {
+    id: String(r.id),
+    runId: String(r.run_id),
+    scenarioKey: String(r.scenario_key),
+    useCase: String(r.use_case),
+    requestCount: Number(r.request_count),
+    succeeded: Number(r.succeeded),
+    failed: Number(r.failed),
+    latencyP50Ms: num(r.latency_p50_ms),
+    latencyP95Ms: num(r.latency_p95_ms),
+    latencyMaxMs: num(r.latency_max_ms),
+    throughputPerSec: num(r.throughput_per_sec),
+    metrics: (r.metrics as QaResult['metrics']) ?? {},
+    createdAt: iso(r.created_at),
   };
 }
 
