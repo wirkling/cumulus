@@ -4,6 +4,7 @@
 import { cpus, totalmem, arch, platform, release } from 'node:os';
 import { statfs, access } from 'node:fs/promises';
 import type { CapabilityReport, Architecture } from '@cumulus/shared-types';
+import { AVAILABLE_EXECUTORS } from './models/index.js';
 
 function mapArch(): Architecture | undefined {
   const a = arch();
@@ -50,5 +51,7 @@ export async function scanCapabilities(): Promise<CapabilityReport> {
     // Metal is the realistic accelerator path on a Mac mini (0b) — report it so
     // routing can use it later without any control-plane change.
     metalAvailable: isDarwin,
+    // Which model executors this node can run (Stage 2 capability-gating).
+    executors: AVAILABLE_EXECUTORS,
   };
 }

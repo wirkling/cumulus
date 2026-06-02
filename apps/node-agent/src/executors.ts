@@ -5,6 +5,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import type { WorkloadType } from '@cumulus/shared-types';
 import { runCpuBenchmark } from './benchmarks.js';
 import { applySimLatency, shouldSimFail } from './sim.js';
+import { runModelWorkload, MODEL_WORKLOADS } from './models/index.js';
 
 export interface ExecutionResult {
   result: unknown;
@@ -29,6 +30,12 @@ export async function executeJob(
   await applySimLatency();
   if (shouldSimFail()) {
     throw new Error('simulated job failure (SIM_FAILURE_RATE)');
+  }
+
+  // Stage-2 real model workloads run through the model manager.
+  if (MODEL_WORKLOADS.has(workloadType)) {
+    const { result, cpuSeconds } = await runModelWorkload(workloadType, input);
+    return { result, resourceUsage: { cpuSeconds } };
   }
 
   const start = process.hrtime.bigint();

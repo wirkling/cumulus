@@ -8,7 +8,7 @@
 import type { FastifyBaseLogger } from 'fastify';
 import { nodes, qa, orchestration } from '@cumulus/db';
 import {
-  QA_SUITE_V1,
+  QA_SUITE,
   type QaScenario,
   type FleetSnapshotNode,
   type QaRunSummary,
@@ -46,13 +46,19 @@ async function snapshotFleet(): Promise<FleetSnapshotNode[]> {
   return out;
 }
 
-/** Expand a scenario's input template into a concrete per-request input. */
+/** Expand a scenario's input template into a concrete per-request input.
+ * Fan-out workloads (split_map_merge, embeddings) get an items array. */
 function buildInput(scenario: QaScenario): Record<string, unknown> {
   const input = { ...scenario.input };
-  if (scenario.workloadType === 'split_map_merge' && typeof input.itemCount === 'number') {
+  const splits =
+    scenario.workloadType === 'split_map_merge' || scenario.workloadType === 'embeddings';
+  if (splits && typeof input.itemCount === 'number') {
     const n = input.itemCount;
     delete input.itemCount;
-    input.items = Array.from({ length: n }, (_, i) => `qa-item-${i}`);
+    input.items =
+      scenario.workloadType === 'embeddings'
+        ? Array.from({ length: n }, (_, i) => `QA sentence ${i}: distributed compute pools run latency-relaxed batch work.`)
+        : Array.from({ length: n }, (_, i) => `qa-item-${i}`);
   }
   return input;
 }
@@ -150,7 +156,7 @@ export interface LaunchQaOptions {
 export async function launchQaRun(opts: LaunchQaOptions, log: FastifyBaseLogger): Promise<string> {
   const fleet = await snapshotFleet();
   const run = await qa.createQaRun({
-    suiteVersion: QA_SUITE_V1.version,
+    suiteVersion: QA_SUITE.version,
     envLabel: opts.envLabel,
     fleetSnapshot: fleet,
     customerId: opts.customerId,
@@ -158,7 +164,7 @@ export async function launchQaRun(opts: LaunchQaOptions, log: FastifyBaseLogger)
   // Requests are attributed to the owning customer (or an internal QA actor).
   const requestCustomerId = opts.customerId ?? 'qa-internal';
 
-  const scenarios = QA_SUITE_V1.scenarios.filter(
+  const scenarios = QA_SUITE.scenarios.filter(
     (s) => !opts.scenarioKeys || opts.scenarioKeys.includes(s.key),
   );
 

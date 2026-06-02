@@ -79,6 +79,7 @@ export function mapCapability(r: Row): NodeCapability {
     cudaAvailable: r.cuda_available as boolean | undefined,
     rocmAvailable: r.rocm_available as boolean | undefined,
     metalAvailable: r.metal_available as boolean | undefined,
+    executors: (r.executors as NodeCapability['executors']) ?? undefined,
     updatedAt: iso(r.updated_at),
   };
 }

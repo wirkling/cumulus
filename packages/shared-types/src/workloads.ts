@@ -60,6 +60,41 @@ export const WORKLOADS: Record<WorkloadType, WorkloadDefinition> = {
     placementWeights: { distance: 0.5, queue: 0.3, benchmark: 0.1, cost: 0.1 },
     defaultTimeoutSeconds: 120,
   },
+
+  // ── Real model workloads (Stage 2). Gated on the node having the executor. ──
+  embeddings: {
+    type: 'embeddings',
+    requiredCapabilities: { executor: 'embeddings' },
+    defaultMergeStrategy: 'collect',
+    fanOutable: true, // split the text batch across shards
+    placementWeights: { distance: 0.1, queue: 0.5, benchmark: 0.3, cost: 0.1 },
+    defaultTimeoutSeconds: 120,
+  },
+  ocr: {
+    type: 'ocr',
+    requiredCapabilities: { executor: 'ocr' },
+    defaultMergeStrategy: 'collect',
+    fanOutable: false,
+    placementWeights: { distance: 0.1, queue: 0.5, benchmark: 0.3, cost: 0.1 },
+    defaultTimeoutSeconds: 120,
+  },
+  transcription: {
+    type: 'transcription',
+    requiredCapabilities: { executor: 'transcription' },
+    defaultMergeStrategy: 'collect',
+    fanOutable: false,
+    // Heavy on CPU — favour the best-benchmarking node.
+    placementWeights: { distance: 0.05, queue: 0.35, benchmark: 0.5, cost: 0.1 },
+    defaultTimeoutSeconds: 300,
+  },
+  llm_generate: {
+    type: 'llm_generate',
+    requiredCapabilities: { executor: 'llm' },
+    defaultMergeStrategy: 'collect',
+    fanOutable: false,
+    placementWeights: { distance: 0.05, queue: 0.35, benchmark: 0.5, cost: 0.1 },
+    defaultTimeoutSeconds: 300,
+  },
 };
 
 /** A few preset German origins for the dashboard's submit form (spec §8). */

@@ -9,7 +9,7 @@ import { submitAndDispatch } from '../services/submit.js';
 import { submitSchema, buildRequestDetail } from './requests.js';
 import { launchQaRun } from '../services/qa-runner.js';
 import { orchestration, qa } from '@cumulus/db';
-import { QA_SUITE_V1, type QaRunDetail } from '@cumulus/shared-types';
+import { QA_SUITE, type QaRunDetail } from '@cumulus/shared-types';
 
 export function registerV1Routes(app: FastifyInstance): void {
   app.addHook('preHandler', async (req, reply) => {
@@ -56,7 +56,7 @@ export function registerV1Routes(app: FastifyInstance): void {
   // ── QA suite, run BY the customer (the real product mechanism) ───────────────
   // The test user runs the tests we defined and gets results back, scoped to
   // their account. This is exactly how a real customer would self-test the pool.
-  app.get('/v1/qa/suite', async (_req, reply) => reply.send(QA_SUITE_V1));
+  app.get('/v1/qa/suite', async (_req, reply) => reply.send(QA_SUITE));
 
   const launchSchema = z.object({
     envLabel: z.string().min(1).max(80).optional(),

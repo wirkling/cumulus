@@ -53,6 +53,12 @@ export function nodeMatchesRequiredCapabilities(
   required: Record<string, unknown>,
 ): boolean {
   for (const [key, want] of Object.entries(required)) {
+    // Special case: `executor` requires membership in the node's executors[].
+    if (key === 'executor') {
+      const executors = candidate.capabilities.executors;
+      if (!Array.isArray(executors) || !executors.includes(want)) return false;
+      continue;
+    }
     const have = candidate.capabilities[key];
     if (typeof want === 'boolean') {
       if (have !== true) return false;

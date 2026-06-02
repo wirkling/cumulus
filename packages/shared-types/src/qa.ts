@@ -140,84 +140,95 @@ export interface LaunchQaRunBody {
 const DRESDEN = { lat: 51.0504, lng: 13.7373, label: 'Dresden' };
 
 /**
- * QA suite v1. Stage 1 maps each use-case slot to an existing mock workload;
- * Stage 2 swaps in real models (embeddings/ocr/transcription/llm) while keeping
- * the same scenario shapes, so runs stay comparable across the change. Keep
- * counts modest so a run finishes in minutes on a small CPU fleet.
- *
- * For split_map_merge, `input.itemCount` is expanded into an items array by the
- * orchestrator (so the suite stays small).
+ * QA suite v2 — real CPU model workloads (embeddings/OCR/transcription/LLM).
+ * Same scenario *shapes* as v1 (latency / load / overflow) so the report stays
+ * structurally comparable across the change. Counts kept modest because CPU
+ * transcription/LLM are slow (that's the finding) and the first run also pays
+ * one-time model downloads. `input.itemCount` is expanded into an items array
+ * by the orchestrator for fan-out workloads (embeddings).
  */
-export const QA_SUITE_V1: QaSuite = {
-  version: 'qa-v1',
+export const QA_SUITE: QaSuite = {
+  version: 'qa-v2',
   scenarios: [
     {
-      key: 'routing_latency',
-      useCase: 'routing-latency',
+      key: 'embeddings_latency',
+      useCase: 'embeddings',
       kind: 'latency',
-      workloadType: 'echo_sleep',
-      requestCount: 20,
-      fanOut: 1,
+      workloadType: 'embeddings',
+      requestCount: 8,
+      fanOut: 2,
       completionPolicy: 'wait_for_all',
       mergeStrategy: 'collect',
-      timeoutSeconds: 30,
-      input: { ms: 200 },
-      description: 'Baseline submit→route→execute→return latency (200ms work).',
-    },
-    {
-      key: 'cpu_compute',
-      useCase: 'cpu-compute',
-      kind: 'latency',
-      workloadType: 'cpu_benchmark',
-      requestCount: 12,
-      fanOut: 1,
-      completionPolicy: 'wait_for_all',
-      mergeStrategy: 'single',
-      timeoutSeconds: 60,
-      input: { iterations: 5_000_000 },
-      description: 'Per-node CPU compute latency (proxy for model inference).',
-    },
-    {
-      key: 'scatter_gather',
-      useCase: 'scatter-gather',
-      kind: 'latency',
-      workloadType: 'split_map_merge',
-      requestCount: 10,
-      fanOut: 3,
-      completionPolicy: 'wait_for_all',
-      mergeStrategy: 'ordered_array',
-      timeoutSeconds: 60,
-      input: { itemCount: 60 },
-      origin: DRESDEN,
-      description: 'Locality-aware split→map→merge latency (proxy for batch jobs).',
+      timeoutSeconds: 120,
+      input: { itemCount: 64 },
+      description: 'Sentence-embedding latency, batch split across shards (all-MiniLM).',
     },
     {
       key: 'throughput_burst',
-      useCase: 'throughput',
+      useCase: 'embeddings-batch',
       kind: 'load',
-      workloadType: 'echo_sleep',
-      requestCount: 100,
+      workloadType: 'embeddings',
+      requestCount: 30,
+      fanOut: 2,
+      completionPolicy: 'wait_for_all',
+      mergeStrategy: 'collect',
+      timeoutSeconds: 180,
+      input: { itemCount: 32 },
+      description: 'Embedding burst — aggregate throughput + per-node distribution (economics anchor).',
+    },
+    {
+      key: 'ocr_latency',
+      useCase: 'ocr',
+      kind: 'latency',
+      workloadType: 'ocr',
+      requestCount: 6,
       fanOut: 1,
       completionPolicy: 'wait_for_all',
       mergeStrategy: 'collect',
       timeoutSeconds: 120,
-      input: { ms: 300 },
-      description: 'Burst of 100 requests — aggregate throughput + per-node distribution.',
+      input: {},
+      description: 'OCR throughput on a synthetic document (tesseract).',
+    },
+    {
+      key: 'transcription_latency',
+      useCase: 'transcription',
+      kind: 'latency',
+      workloadType: 'transcription',
+      requestCount: 3,
+      fanOut: 1,
+      completionPolicy: 'wait_for_all',
+      mergeStrategy: 'collect',
+      timeoutSeconds: 300,
+      input: {},
+      description: 'Speech-to-text real-time-factor on CPU (Whisper-tiny) — a likely CPU edge.',
+    },
+    {
+      key: 'llm_latency',
+      useCase: 'llm',
+      kind: 'latency',
+      workloadType: 'llm_generate',
+      requestCount: 3,
+      fanOut: 1,
+      completionPolicy: 'wait_for_all',
+      mergeStrategy: 'collect',
+      timeoutSeconds: 300,
+      input: { prompt: 'In one sentence, what is a distributed compute pool?', maxTokens: 48 },
+      description: 'Small-LLM tokens/sec on CPU (Qwen2.5-0.5B) — documents where we fall flat.',
     },
     {
       key: 'overflow',
       useCase: 'overflow',
       kind: 'overflow',
-      workloadType: 'split_map_merge',
-      requestCount: 30,
-      fanOut: 4,
+      workloadType: 'embeddings',
+      requestCount: 18,
+      fanOut: 3,
       completionPolicy: 'wait_for_all',
-      mergeStrategy: 'ordered_array',
-      timeoutSeconds: 120,
-      input: { itemCount: 40 },
+      mergeStrategy: 'collect',
+      timeoutSeconds: 180,
+      input: { itemCount: 48 },
       origin: DRESDEN,
       description:
-        'Saturating Dresden-origin load — measures how much work overflows the nearest node onto the wider pool.',
+        'Saturating Dresden-origin embedding load — how much work overflows the nearest node onto the pool.',
     },
   ],
 };

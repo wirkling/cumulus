@@ -45,8 +45,9 @@ export function decomposeRequest(req: Request): ShardSpec[] {
   }
 
   switch (req.workloadType) {
-    case 'split_map_merge': {
-      // Expect input.items: unknown[]; partition across shards.
+    case 'split_map_merge':
+    case 'embeddings': {
+      // Partition input.items across shards (embeddings splits its text batch).
       const items = Array.isArray(req.input.items) ? (req.input.items as unknown[]) : [];
       const chunks = chunk(items, fanOut);
       return chunks.map((items, shardIndex) => ({

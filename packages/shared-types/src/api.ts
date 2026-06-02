@@ -5,6 +5,7 @@
 import type {
   Architecture,
   CompletionPolicy,
+  ExecutorKind,
   GeoPoint,
   HeartbeatMetrics,
   Job,
@@ -39,6 +40,7 @@ export interface CapabilityReport {
   cudaAvailable?: boolean;
   rocmAvailable?: boolean;
   metalAvailable?: boolean;
+  executors?: ExecutorKind[];
 }
 
 export interface RegisterRequest {

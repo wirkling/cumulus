@@ -46,8 +46,23 @@ export type PowerProfile =
   | 'commercial_63a'
   | 'commercial_125a_plus';
 
-/** The three mock workloads shipped in v1 (spec §2). */
-export type WorkloadType = 'echo_sleep' | 'cpu_benchmark' | 'split_map_merge';
+/**
+ * Workloads. The first three are the v1 routing proxies; the latter four are
+ * real CPU model inference added in Stage 2 (the QA suite measures these).
+ */
+export type WorkloadType =
+  | 'echo_sleep'
+  | 'cpu_benchmark'
+  | 'split_map_merge'
+  | 'embeddings'
+  | 'ocr'
+  | 'transcription'
+  | 'llm_generate';
+
+/** Executors a node can run — advertised in capabilities, gated at placement.
+ * A GPU node later advertises these with a high benchmark and the heavy ones
+ * route there, overflowing to the CPU pool (zero control-plane change). */
+export type ExecutorKind = 'embeddings' | 'ocr' | 'transcription' | 'llm';
 
 export type BenchmarkType =
   | 'cpu'
@@ -157,6 +172,8 @@ export interface NodeCapability {
   cudaAvailable?: boolean;
   rocmAvailable?: boolean;
   metalAvailable?: boolean;
+  /** Which model executors this node can run (Stage 2 capability-gating). */
+  executors?: ExecutorKind[];
   updatedAt: string;
 }
 

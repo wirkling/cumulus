@@ -33,6 +33,7 @@ const capabilitySchema = z
     cudaAvailable: z.boolean().optional(),
     rocmAvailable: z.boolean().optional(),
     metalAvailable: z.boolean().optional(),
+    executors: z.array(z.enum(['embeddings', 'ocr', 'transcription', 'llm'])).optional(),
   })
   .strict();
 

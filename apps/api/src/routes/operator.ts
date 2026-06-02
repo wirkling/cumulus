@@ -12,7 +12,7 @@ import type {
   CustomerWithKey,
   QaRunDetail,
 } from '@cumulus/shared-types';
-import { QA_SUITE_V1 } from '@cumulus/shared-types';
+import { QA_SUITE } from '@cumulus/shared-types';
 import { authenticateOperator, mintCustomerKey } from '../auth.js';
 import { parseOr400 } from '../validate.js';
 import { enqueueDirective } from '../services/directives.js';
@@ -170,7 +170,7 @@ export function registerOperatorRoutes(app: FastifyInstance): void {
   });
 
   // ── QA / Test Center ─────────────────────────────────────────────────────────
-  app.get('/api/operator/qa/suite', async (_req, reply) => reply.send(QA_SUITE_V1));
+  app.get('/api/operator/qa/suite', async (_req, reply) => reply.send(QA_SUITE));
 
   const launchSchema = z.object({
     envLabel: z.string().min(1).max(80),

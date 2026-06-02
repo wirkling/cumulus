@@ -32,7 +32,13 @@ async function runFakeNode(i: number): Promise<void> {
     nodeName: `sim-node-${i}-${loc.city}`,
     nodeType: 'vpc',
     agentVersion: 'sim-0.1.0',
-    capabilities: { cpuCores: 2 + (i % 4), ramGb: 4, architecture: 'x64', os: 'sim' },
+    capabilities: {
+      cpuCores: 2 + (i % 4),
+      ramGb: 4,
+      architecture: 'x64',
+      os: 'sim',
+      executors: ['embeddings', 'ocr', 'transcription', 'llm'],
+    },
     location: loc,
   });
   client.setIdentity(res.nodeId, res.agentToken);

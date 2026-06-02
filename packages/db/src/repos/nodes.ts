@@ -170,13 +170,14 @@ export async function upsertCapabilities(
     insert into node_capabilities
       (node_id, cpu_model, cpu_cores, cpu_threads, ram_gb, disk_gb, gpu_count,
        gpu_models, gpu_vram_gb, os, architecture, docker_available, cuda_available,
-       rocm_available, metal_available, updated_at)
+       rocm_available, metal_available, executors, updated_at)
     values
       (${nodeId}, ${c.cpuModel ?? null}, ${c.cpuCores ?? null}, ${c.cpuThreads ?? null},
        ${c.ramGb ?? null}, ${c.diskGb ?? null}, ${c.gpuCount ?? null},
        ${c.gpuModels ? sql.json(toJson(c.gpuModels)) : null}, ${c.gpuVramGb ? sql.json(toJson(c.gpuVramGb)) : null},
        ${c.os ?? null}, ${c.architecture ?? null}, ${c.dockerAvailable ?? null},
-       ${c.cudaAvailable ?? null}, ${c.rocmAvailable ?? null}, ${c.metalAvailable ?? null}, now())
+       ${c.cudaAvailable ?? null}, ${c.rocmAvailable ?? null}, ${c.metalAvailable ?? null},
+       ${c.executors ? sql.json(toJson(c.executors)) : null}, now())
     on conflict (node_id) do update set
       cpu_model = excluded.cpu_model, cpu_cores = excluded.cpu_cores,
       cpu_threads = excluded.cpu_threads, ram_gb = excluded.ram_gb,
@@ -185,7 +186,7 @@ export async function upsertCapabilities(
       os = excluded.os, architecture = excluded.architecture,
       docker_available = excluded.docker_available, cuda_available = excluded.cuda_available,
       rocm_available = excluded.rocm_available, metal_available = excluded.metal_available,
-      updated_at = now()`;
+      executors = excluded.executors, updated_at = now()`;
 }
 
 export async function getCapabilities(nodeId: string): Promise<NodeCapability | null> {
@@ -239,7 +240,7 @@ export async function getPlacementCandidates(): Promise<PlacementCandidate[]> {
       l.longitude     as lng,
       l.name          as location_name,
       c.ram_gb, c.cpu_cores, c.cpu_threads, c.architecture,
-      c.docker_available, c.cuda_available, c.rocm_available, c.metal_available, c.gpu_count,
+      c.docker_available, c.cuda_available, c.rocm_available, c.metal_available, c.gpu_count, c.executors,
       coalesce(q.queue_length, 0) as queue_length,
       b.score         as benchmark_score
     from nodes n
@@ -276,6 +277,7 @@ export async function getPlacementCandidates(): Promise<PlacementCandidate[]> {
         rocmAvailable: r.rocm_available ?? undefined,
         metalAvailable: r.metal_available ?? undefined,
         gpuCount: r.gpu_count != null ? Number(r.gpu_count) : undefined,
+        executors: (r.executors as string[]) ?? [],
       },
       queueLength: Number(r.queue_length),
       benchmarkScore: r.benchmark_score != null ? Number(r.benchmark_score) : undefined,

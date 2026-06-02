@@ -8,10 +8,14 @@
     "start": "tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "sim:nodes": "tsx src/sim/fake-nodes.ts"
+    "sim:nodes": "tsx src/sim/fake-nodes.ts",
+    "selftest": "tsx src/models/selftest.ts"
   },
   "dependencies": {
-    "@cumulus/shared-types": "workspace:*"
+    "@cumulus/shared-types": "workspace:*",
+    "@huggingface/transformers": "^3.0.2",
+    "node-llama-cpp": "^3.1.1",
+    "tesseract.js": "^5.1.1"
   },
   "devDependencies": {
     "@types/node": "^20.16.5",
