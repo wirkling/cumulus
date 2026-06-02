@@ -40,11 +40,16 @@ export function GroupedBars({
   series,
   unit = '',
   height = 240,
+  target,
+  targetLabel = 'target',
 }: {
   groups: Group[];
   series: Series[];
   unit?: string;
   height?: number;
+  /** Optional horizontal reference line (e.g. an SLO). */
+  target?: number;
+  targetLabel?: string;
 }) {
   const W = 760;
   const H = height;
@@ -55,7 +60,7 @@ export function GroupedBars({
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
   const max = niceMax(
-    Math.max(1, ...groups.flatMap((g) => series.map((s) => g.values[s.key] ?? 0))),
+    Math.max(1, target ?? 0, ...groups.flatMap((g) => series.map((s) => g.values[s.key] ?? 0))),
   );
   const gw = plotW / Math.max(1, groups.length);
   const barW = (gw * 0.72) / Math.max(1, series.length);
@@ -108,6 +113,14 @@ export function GroupedBars({
             </Fragment>
           );
         })}
+        {target != null && target <= max && (
+          <>
+            <line x1={padL} x2={W - padR} y1={y(target)} y2={y(target)} stroke="#f87171" strokeWidth={1.5} strokeDasharray="5 4" />
+            <text x={W - padR} y={y(target) - 4} textAnchor="end" fontSize={10} fill="#f87171">
+              {targetLabel} {target}{unit}
+            </text>
+          </>
+        )}
       </svg>
     </div>
   );
@@ -118,24 +131,46 @@ export function HBars({
   rows,
   unit = '',
   max: maxOverride,
+  target,
+  higherIsBetter = true,
 }: {
   rows: { label: string; value: number; color?: string }[];
   unit?: string;
   max?: number;
+  /** When set, bars are coloured by pass(green)/near(amber)/fail(red) vs target. */
+  target?: number;
+  higherIsBetter?: boolean;
 }) {
-  const max = maxOverride ?? niceMax(Math.max(1, ...rows.map((r) => r.value)));
+  const max = maxOverride ?? niceMax(Math.max(1, target ?? 0, ...rows.map((r) => r.value)));
+  const colorFor = (v: number, fallback: string): string => {
+    if (target == null) return fallback;
+    const pass = higherIsBetter ? v >= target : v <= target;
+    const near = higherIsBetter ? v >= target * 0.8 : v <= target * 1.25;
+    return pass ? '#34d399' : near ? '#f59e0b' : '#f87171';
+  };
   return (
     <div className="space-y-1.5">
+      {target != null && (
+        <div className="text-xs text-muted">
+          target {higherIsBetter ? '≥' : '≤'} {target}{unit}
+        </div>
+      )}
       {rows.map((r, i) => (
         <div key={r.label} className="flex items-center gap-2 text-xs">
           <span className="w-40 shrink-0 truncate text-muted" title={r.label}>
             {r.label}
           </span>
-          <div className="h-3 flex-1 overflow-hidden rounded bg-edge">
+          <div className="relative h-3 flex-1 overflow-hidden rounded bg-edge">
             <div
               className="h-full rounded"
-              style={{ width: `${Math.max(2, (r.value / max) * 100)}%`, background: r.color ?? PALETTE[i % PALETTE.length] }}
+              style={{ width: `${Math.max(2, (r.value / max) * 100)}%`, background: colorFor(r.value, r.color ?? PALETTE[i % PALETTE.length]) }}
             />
+            {target != null && target <= max && (
+              <span
+                className="absolute top-0 h-full border-l border-dashed border-red-400"
+                style={{ left: `${(target / max) * 100}%` }}
+              />
+            )}
           </div>
           <span className="w-20 shrink-0 text-right tabular-nums">
             {r.value}
@@ -179,10 +214,12 @@ export function TrendLine({
   points,
   unit = '',
   height = 200,
+  target,
 }: {
   points: { label: string; value: number }[];
   unit?: string;
   height?: number;
+  target?: number;
 }) {
   const W = 760;
   const H = height;
@@ -192,7 +229,7 @@ export function TrendLine({
   const padR = 12;
   const plotW = W - padL - padR;
   const plotH = H - padT - padB;
-  const max = niceMax(Math.max(1, ...points.map((p) => p.value)));
+  const max = niceMax(Math.max(1, target ?? 0, ...points.map((p) => p.value)));
   const x = (i: number) => padL + (points.length <= 1 ? plotW / 2 : (i / (points.length - 1)) * plotW);
   const y = (v: number) => padT + plotH - (v / max) * plotH;
   const path = points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${x(i)} ${y(p.value)}`).join(' ');
@@ -208,6 +245,14 @@ export function TrendLine({
             </text>
           </Fragment>
         ))}
+        {target != null && target <= max && (
+          <>
+            <line x1={padL} x2={W - padR} y1={y(target)} y2={y(target)} stroke="#f87171" strokeWidth={1.5} strokeDasharray="5 4" />
+            <text x={W - padR} y={y(target) - 4} textAnchor="end" fontSize={10} fill="#f87171">
+              SLO {target}{unit}
+            </text>
+          </>
+        )}
         <path d={path} fill="none" stroke="#34d399" strokeWidth={2} />
         {points.map((p, i) => (
           <Fragment key={p.label}>

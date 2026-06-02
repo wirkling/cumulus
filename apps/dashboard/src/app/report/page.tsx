@@ -6,9 +6,20 @@ import { GroupedBars, HBars, TrendLine, Kpi, PALETTE } from '@/lib/charts';
 import {
   buildReport,
   economics,
+  scorecard,
   DEFAULT_ASSUMPTIONS,
+  DEFAULT_TARGETS,
   type EconomicsAssumptions,
+  type ReportTargets,
+  type ScoreStatus,
 } from '@/lib/report';
+
+const SCORE_CLASS: Record<ScoreStatus, string> = {
+  pass: 'text-emerald-300',
+  warn: 'text-amber-300',
+  fail: 'text-red-300',
+};
+const SCORE_ICON: Record<ScoreStatus, string> = { pass: '✓', warn: '~', fail: '✗' };
 
 function fmtMs(ms?: number): string {
   if (ms == null) return '—';
@@ -35,6 +46,7 @@ export default function ReportPage() {
   const [details, setDetails] = useState<QaRunDetail[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [a, setA] = useState<EconomicsAssumptions>(DEFAULT_ASSUMPTIONS);
+  const [targets, setTargets] = useState<ReportTargets>(DEFAULT_TARGETS);
 
   const toggle = (id: string) =>
     setSelected((prev) => {
@@ -60,6 +72,10 @@ export default function ReportPage() {
 
   const report = useMemo(() => (details ? buildReport(details) : null), [details]);
   const econ = useMemo(() => (details ? economics(details, a) : []), [details, a]);
+  const scores = useMemo(
+    () => (report ? scorecard(report, econ, targets) : []),
+    [report, econ, targets],
+  );
 
   const runSeries = (report?.runs ?? []).map((r, i) => ({
     key: r.id,
@@ -72,9 +88,11 @@ export default function ReportPage() {
     const payload = {
       setups: report.setups,
       kpis: report.kpis,
+      scorecard: scores,
       deviations: report.deviations,
       economics: econ,
       assumptions: a,
+      targets,
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -125,27 +143,54 @@ export default function ReportPage() {
         </button>
       </div>
 
-      {/* Tunable economic assumptions */}
+      {/* Tunable targets + economic assumptions */}
       {report && (
-        <div className="no-print card grid grid-cols-2 gap-3 md:grid-cols-4">
-          {(
-            [
-              ['costPerNodeMonthEur', '€ / node / month'],
-              ['revenuePerThousandJobsEur', '€ / 1k jobs (revenue proxy)'],
-              ['activeHoursPerDay', 'active hours / day'],
-              ['sloP95Ms', 'p95 SLO (ms)'],
-            ] as const
-          ).map(([k, label]) => (
-            <label key={k} className="text-sm">
-              <span className="mb-1 block text-xs text-muted">{label}</span>
-              <input
-                type="number"
-                value={a[k]}
-                onChange={(e) => setA({ ...a, [k]: Number(e.target.value) })}
-                className="w-full rounded border border-edge bg-ink px-2 py-1.5"
-              />
-            </label>
-          ))}
+        <div className="no-print grid gap-3 md:grid-cols-2">
+          <div className="card">
+            <div className="mb-2 text-sm font-medium">Targets (graded below)</div>
+            <div className="grid grid-cols-2 gap-3">
+              {(
+                [
+                  ['successPct', 'success % (≥)'],
+                  ['sloP95Ms', 'batch p95 SLO ms (≤)'],
+                  ['minThroughputPerSec', 'min throughput /s (≥)'],
+                  ['grossMarginPct', 'gross margin % (≥)'],
+                ] as const
+              ).map(([k, label]) => (
+                <label key={k} className="text-sm">
+                  <span className="mb-1 block text-xs text-muted">{label}</span>
+                  <input
+                    type="number"
+                    value={targets[k]}
+                    onChange={(e) => setTargets({ ...targets, [k]: Number(e.target.value) })}
+                    className="w-full rounded border border-edge bg-ink px-2 py-1.5"
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+          <div className="card">
+            <div className="mb-2 text-sm font-medium">Economic assumptions</div>
+            <div className="grid grid-cols-2 gap-3">
+              {(
+                [
+                  ['costPerNodeMonthEur', '€ / node / month'],
+                  ['revenuePerThousandJobsEur', '€ / 1k jobs (revenue)'],
+                  ['activeHoursPerDay', 'active hours / day'],
+                ] as const
+              ).map(([k, label]) => (
+                <label key={k} className="text-sm">
+                  <span className="mb-1 block text-xs text-muted">{label}</span>
+                  <input
+                    type="number"
+                    value={a[k]}
+                    onChange={(e) => setA({ ...a, [k]: Number(e.target.value) })}
+                    className="w-full rounded border border-edge bg-ink px-2 py-1.5"
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -157,6 +202,23 @@ export default function ReportPage() {
             <Kpi label="Overall success" value={`${report.kpis.overallSuccessPct}%`} />
             <Kpi label="Best p95" value={fmtMs(report.kpis.bestP95Ms)} sub={`worst ${fmtMs(report.kpis.worstP95Ms)}`} />
             <Kpi label="Footprint" value={`${report.kpis.locations} loc · ${report.kpis.machineTypes} type`} />
+          </section>
+
+          {/* Targets vs actual scorecard — the "are we there?" verdict */}
+          <section>
+            <h2 className="mb-2 font-semibold">Targets vs actual</h2>
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              {scores.map((s) => (
+                <div key={s.metric} className="card">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs text-muted">{s.metric}</span>
+                    <span className={`text-lg ${SCORE_CLASS[s.status]}`}>{SCORE_ICON[s.status]}</span>
+                  </div>
+                  <div className={`mt-1 text-xl font-semibold tabular-nums ${SCORE_CLASS[s.status]}`}>{s.actual}</div>
+                  <div className="text-xs text-muted">target {s.target}</div>
+                </div>
+              ))}
+            </div>
           </section>
 
           {/* Setup matrix — what differs between the pooled runs */}
@@ -204,6 +266,8 @@ export default function ReportPage() {
                 }))}
                 series={runSeries}
                 unit="ms"
+                target={targets.sloP95Ms}
+                targetLabel="SLO"
               />
             </div>
             <div className="card">
@@ -257,7 +321,7 @@ export default function ReportPage() {
 
           {/* Viability map vs SLO — addressable workloads */}
           <section>
-            <h2 className="mb-2 font-semibold">Workload viability vs p95 SLO ({a.sloP95Ms}ms)</h2>
+            <h2 className="mb-2 font-semibold">Workload viability vs p95 SLO ({targets.sloP95Ms}ms)</h2>
             <div className="card overflow-x-auto p-0">
               <table className="tabular w-full text-sm">
                 <thead>
@@ -274,10 +338,10 @@ export default function ReportPage() {
                       <td className="font-medium">{uc}</td>
                       {report.runs.map((r) => {
                         const p95 = report.resultByRunUseCase.get(`${r.id}::${uc}`)?.latencyP95Ms;
-                        const ok = p95 != null && p95 <= a.sloP95Ms;
-                        const amber = p95 != null && p95 <= a.sloP95Ms * 2;
+                        const ok = p95 != null && p95 <= targets.sloP95Ms;
+                        const amber = p95 != null && p95 <= targets.sloP95Ms * 2;
                         return (
-                          <td key={r.id} className={sloClass(p95, a.sloP95Ms)}>
+                          <td key={r.id} className={sloClass(p95, targets.sloP95Ms)}>
                             {p95 == null ? '—' : ok ? '● meets' : amber ? '● near' : '● misses'}
                           </td>
                         );
@@ -327,7 +391,13 @@ export default function ReportPage() {
               </div>
               <div className="card">
                 <h3 className="mb-2 text-sm font-medium">Gross margin by setup</h3>
-                <HBars rows={econ.map((e) => ({ label: e.envLabel, value: e.grossMarginPct }))} unit="%" max={100} />
+                <HBars
+                  rows={econ.map((e) => ({ label: e.envLabel, value: e.grossMarginPct }))}
+                  unit="%"
+                  max={100}
+                  target={targets.grossMarginPct}
+                  higherIsBetter
+                />
               </div>
             </div>
           </section>
@@ -342,6 +412,7 @@ export default function ReportPage() {
                   value: Math.max(0, ...report.runs.find((r) => r.id === s.runId)!.results.map((x) => x.latencyP95Ms ?? 0)),
                 }))}
                 unit="ms"
+                target={targets.sloP95Ms}
               />
             </section>
           )}

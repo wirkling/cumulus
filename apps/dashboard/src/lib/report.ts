@@ -6,15 +6,43 @@ export interface EconomicsAssumptions {
   costPerNodeMonthEur: number;
   revenuePerThousandJobsEur: number;
   activeHoursPerDay: number;
-  sloP95Ms: number;
 }
 
 export const DEFAULT_ASSUMPTIONS: EconomicsAssumptions = {
   costPerNodeMonthEur: 4, // cx23 ≈ €3.99/mo
   revenuePerThousandJobsEur: 50,
   activeHoursPerDay: 24,
-  sloP95Ms: 5000,
 };
+
+/** Target numbers the report grades against (editable defaults, not hard truth).
+ * Reflects the latency-relaxed positioning: generous SLO, high reliability,
+ * pooling efficiency, and a viable margin. */
+export interface ReportTargets {
+  successPct: number;
+  sloP95Ms: number;
+  minThroughputPerSec: number;
+  grossMarginPct: number;
+}
+
+export const DEFAULT_TARGETS: ReportTargets = {
+  successPct: 99,
+  sloP95Ms: 60000, // batch/async — interactive (<1s) is out of scope by design
+  minThroughputPerSec: 1,
+  grossMarginPct: 50,
+};
+
+export type ScoreStatus = 'pass' | 'warn' | 'fail';
+
+export interface ScorecardItem {
+  metric: string;
+  target: string;
+  actual: string;
+  status: ScoreStatus;
+}
+
+function grade(pass: boolean, near: boolean): ScoreStatus {
+  return pass ? 'pass' : near ? 'warn' : 'fail';
+}
 
 export interface RunSetup {
   runId: string;
@@ -173,4 +201,41 @@ export function economics(runs: QaRunDetail[], a: EconomicsAssumptions): Economi
       grossMarginPct: grossMargin,
     };
   });
+}
+
+const fmtMs = (ms?: number): string =>
+  ms == null ? '—' : ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${Math.round(ms)}ms`;
+
+/** Grade the pooled results against the targets — the "are we there?" verdict. */
+export function scorecard(report: Report, econ: EconomicsRow[], t: ReportTargets): ScorecardItem[] {
+  const bestThroughput = Math.max(0, ...econ.map((e) => e.sustainedJobsPerSec));
+  const bestMargin = econ.length ? Math.max(...econ.map((e) => e.grossMarginPct)) : 0;
+  const worstP95 = report.kpis.worstP95Ms;
+
+  return [
+    {
+      metric: 'Job success rate',
+      target: `≥ ${t.successPct}%`,
+      actual: `${report.kpis.overallSuccessPct}%`,
+      status: grade(report.kpis.overallSuccessPct >= t.successPct, report.kpis.overallSuccessPct >= t.successPct * 0.97),
+    },
+    {
+      metric: 'Batch p95 (worst use case)',
+      target: `≤ ${fmtMs(t.sloP95Ms)}`,
+      actual: fmtMs(worstP95),
+      status: grade(worstP95 != null && worstP95 <= t.sloP95Ms, worstP95 != null && worstP95 <= t.sloP95Ms * 1.5),
+    },
+    {
+      metric: 'Sustained throughput (best setup)',
+      target: `≥ ${t.minThroughputPerSec}/s`,
+      actual: `${bestThroughput}/s`,
+      status: grade(bestThroughput >= t.minThroughputPerSec, bestThroughput >= t.minThroughputPerSec * 0.8),
+    },
+    {
+      metric: 'Gross margin (best setup)',
+      target: `≥ ${t.grossMarginPct}%`,
+      actual: `${bestMargin}%`,
+      status: grade(bestMargin >= t.grossMarginPct, bestMargin >= t.grossMarginPct * 0.8),
+    },
+  ];
 }
