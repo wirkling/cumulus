@@ -10,6 +10,9 @@ import type {
   SubmitRequestBody,
   RequestDetail,
   RequestStatus,
+  QaRun,
+  QaRunDetail,
+  QaSuite,
 } from '@cumulus/shared-types';
 
 export interface CumulusClientOptions {
@@ -106,5 +109,41 @@ export class CumulusClient {
   ): Promise<RequestResult> {
     const { id } = await this.submit(body);
     return this.waitFor(id, opts);
+  }
+
+  // ── Self-test: run the QA suite we defined, as this customer ────────────────
+
+  /** Fetch the QA suite definition (what tests can be run). */
+  qaSuite(): Promise<QaSuite> {
+    return this.call<QaSuite>('GET', '/v1/qa/suite');
+  }
+
+  /** Kick off a QA run for this customer; returns the run id. */
+  async runQa(opts: { envLabel?: string; scenarioKeys?: string[] } = {}): Promise<string> {
+    const { runId } = await this.call<{ runId: string }>('POST', '/v1/qa/runs', opts);
+    return runId;
+  }
+
+  listQaRuns(): Promise<QaRun[]> {
+    return this.call<QaRun[]>('GET', '/v1/qa/runs');
+  }
+
+  getQaRun(runId: string): Promise<QaRunDetail> {
+    return this.call<QaRunDetail>('GET', `/v1/qa/runs/${runId}`);
+  }
+
+  /** Run the QA suite and block until it finishes (or timeout), returning the
+   * full results — the test user's end-to-end self-test. */
+  async runQaAndWait(
+    opts: { envLabel?: string; scenarioKeys?: string[]; pollMs?: number; timeoutMs?: number } = {},
+  ): Promise<QaRunDetail> {
+    const runId = await this.runQa(opts);
+    const deadline = Date.now() + (opts.timeoutMs ?? 600_000);
+    for (;;) {
+      const run = await this.getQaRun(runId);
+      if (run.status !== 'running') return run;
+      if (Date.now() > deadline) return run;
+      await new Promise((r) => setTimeout(r, opts.pollMs ?? 2000));
+    }
   }
 }

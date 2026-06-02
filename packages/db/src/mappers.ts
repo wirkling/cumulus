@@ -200,6 +200,7 @@ export function mapQaRun(r: Row): QaRun {
     suiteVersion: String(r.suite_version),
     envLabel: String(r.env_label),
     status: r.status as QaRun['status'],
+    customerId: str(r.customer_id),
     fleetSnapshot: (r.fleet_snapshot as QaRun['fleetSnapshot']) ?? [],
     summary: (r.summary as QaRun['summary']) ?? undefined,
     startedAt: iso(r.started_at),

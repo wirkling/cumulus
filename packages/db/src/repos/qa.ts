@@ -13,11 +13,13 @@ export async function createQaRun(params: {
   suiteVersion: string;
   envLabel: string;
   fleetSnapshot: FleetSnapshotNode[];
+  customerId?: string;
 }): Promise<QaRun> {
   const sql = getSql();
   const rows = await sql`
-    insert into qa_runs (suite_version, env_label, fleet_snapshot, status)
-    values (${params.suiteVersion}, ${params.envLabel}, ${sql.json(toJson(params.fleetSnapshot))}, 'running')
+    insert into qa_runs (suite_version, env_label, fleet_snapshot, status, customer_id)
+    values (${params.suiteVersion}, ${params.envLabel}, ${sql.json(toJson(params.fleetSnapshot))},
+            'running', ${params.customerId ?? null})
     returning *`;
   return mapQaRun(rows[0]!);
 }
@@ -70,6 +72,15 @@ export async function getQaRun(id: string): Promise<QaRun | null> {
 export async function listQaRuns(limit = 50): Promise<QaRun[]> {
   const sql = getSql();
   const rows = await sql`select * from qa_runs order by started_at desc limit ${limit}`;
+  return rows.map(mapQaRun);
+}
+
+/** A single customer's runs (the test user sees only their own). */
+export async function listQaRunsForCustomer(customerId: string, limit = 50): Promise<QaRun[]> {
+  const sql = getSql();
+  const rows = await sql`
+    select * from qa_runs where customer_id = ${customerId}
+    order by started_at desc limit ${limit}`;
   return rows.map(mapQaRun);
 }
 

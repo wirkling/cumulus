@@ -65,12 +65,22 @@ export interface FleetSnapshotNode {
   cpuBenchmark?: number;
 }
 
+/** A real merged output from one request in the scenario — shown in the unfold
+ * so the test user sees actual work product come back, not just metrics. */
+export interface QaSampleResult {
+  requestId: string;
+  status: string;
+  mergedResult: unknown;
+}
+
 export interface QaResultMetrics {
   /** Per-node job distribution for this scenario (the pooling proof). */
   perNodeJobs?: Record<string, number>;
   wallClockMs?: number;
   /** Fraction of work that ran off the single nearest/primary node. */
   overflowRatio?: number;
+  /** A few real merged outputs, for the "unfold to JSON" view. */
+  sampleResults?: QaSampleResult[];
   [key: string]: unknown;
 }
 
@@ -103,6 +113,8 @@ export interface QaRun {
   suiteVersion: string;
   envLabel: string;
   status: QaRunStatus;
+  /** The customer who owns/ran this QA run (the test user). */
+  customerId?: string;
   fleetSnapshot: FleetSnapshotNode[];
   summary?: QaRunSummary;
   startedAt: string;

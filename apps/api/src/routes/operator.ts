@@ -175,12 +175,17 @@ export function registerOperatorRoutes(app: FastifyInstance): void {
   const launchSchema = z.object({
     envLabel: z.string().min(1).max(80),
     scenarioKeys: z.array(z.string()).optional(),
+    // Run "as" a selected test user (the review UI sets this).
+    customerId: z.string().optional(),
   });
 
   app.post('/api/operator/qa/runs', async (req, reply) => {
     const body = parseOr400(launchSchema, req.body, reply);
     if (!body) return;
-    const runId = await launchQaRun(body.envLabel, body.scenarioKeys, req.log);
+    const runId = await launchQaRun(
+      { envLabel: body.envLabel, scenarioKeys: body.scenarioKeys, customerId: body.customerId },
+      req.log,
+    );
     return reply.code(201).send({ runId });
   });
 

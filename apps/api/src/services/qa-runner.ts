@@ -59,6 +59,7 @@ function buildInput(scenario: QaScenario): Record<string, unknown> {
 
 async function runScenario(
   runId: string,
+  customerId: string,
   scenario: QaScenario,
   log: FastifyBaseLogger,
 ): Promise<void> {
@@ -76,7 +77,7 @@ async function runScenario(
         onPartial: 'return_partial',
         timeoutSeconds: scenario.timeoutSeconds,
         input: buildInput(scenario),
-        customerId: 'qa',
+        customerId,
         qaRunId: runId,
       }).catch(() => null),
     ),
@@ -110,6 +111,13 @@ async function runScenario(
   const busiest = Math.max(0, ...Object.values(perNodeJobs));
   const overflowRatio = totalJobs > 0 ? Math.round((1 - busiest / totalJobs) * 100) / 100 : 0;
 
+  // A few real merged outputs so the test user sees actual work product back.
+  const sampleResults = requests.slice(0, 3).map((r) => ({
+    requestId: r.id,
+    status: r.status,
+    mergedResult: r.mergedResult ?? null,
+  }));
+
   await qa.addQaResult({
     runId,
     scenarioKey: scenario.key,
@@ -122,7 +130,7 @@ async function runScenario(
     latencyMaxMs: latencies.length ? latencies[latencies.length - 1] : undefined,
     throughputPerSec:
       wallClockMs > 0 ? Math.round((succeeded / (wallClockMs / 1000)) * 100) / 100 : 0,
-    metrics: { perNodeJobs, wallClockMs, overflowRatio },
+    metrics: { perNodeJobs, wallClockMs, overflowRatio, sampleResults },
   });
 
   log.info(
@@ -131,28 +139,34 @@ async function runScenario(
   );
 }
 
+export interface LaunchQaOptions {
+  envLabel: string;
+  scenarioKeys?: string[];
+  /** The customer this run is attributed to (the test user). */
+  customerId?: string;
+}
+
 /** Launch a run in the background; returns the run id immediately. */
-export async function launchQaRun(
-  envLabel: string,
-  scenarioKeys: string[] | undefined,
-  log: FastifyBaseLogger,
-): Promise<string> {
+export async function launchQaRun(opts: LaunchQaOptions, log: FastifyBaseLogger): Promise<string> {
   const fleet = await snapshotFleet();
   const run = await qa.createQaRun({
     suiteVersion: QA_SUITE_V1.version,
-    envLabel,
+    envLabel: opts.envLabel,
     fleetSnapshot: fleet,
+    customerId: opts.customerId,
   });
+  // Requests are attributed to the owning customer (or an internal QA actor).
+  const requestCustomerId = opts.customerId ?? 'qa-internal';
 
   const scenarios = QA_SUITE_V1.scenarios.filter(
-    (s) => !scenarioKeys || scenarioKeys.includes(s.key),
+    (s) => !opts.scenarioKeys || opts.scenarioKeys.includes(s.key),
   );
 
   // Fire-and-forget; the dashboard polls the run for progress.
   void (async () => {
     try {
       for (const scenario of scenarios) {
-        await runScenario(run.id, scenario, log);
+        await runScenario(run.id, requestCustomerId, scenario, log);
       }
       const results = await qa.listQaResults(run.id);
       const summary: QaRunSummary = {
