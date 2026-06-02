@@ -45,6 +45,12 @@ variable "node_locations" {
   default     = ["fsn1", "hel1", "fsn1"]
 }
 
+variable "fleet_enabled" {
+  description = "Sleep switch: when false, no fleet nodes are created (the API host stays up). scripts/sleep.sh sets this false; scripts/wake.sh sets it true."
+  type        = bool
+  default     = true
+}
+
 # ── Secrets injected into the API env file (server-side only) ─────────────────
 variable "database_url" {
   description = "Supabase Postgres direct connection string."

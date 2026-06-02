@@ -40,7 +40,8 @@ resource "hcloud_server" "api" {
 
 # ── Disposable fleet nodes across ≥2 regions ──────────────────────────────────
 resource "hcloud_server" "node" {
-  count       = length(var.node_locations)
+  # Sleep switch: 0 nodes when the fleet is disabled, keeping the API host up.
+  count       = var.fleet_enabled ? length(var.node_locations) : 0
   name        = "cumulus-node-${count.index}-${var.node_locations[count.index]}"
   server_type = var.node_server_type
   location    = var.node_locations[count.index]
