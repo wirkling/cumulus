@@ -136,7 +136,8 @@ const MMLU_FALLBACK: MmluItem[] = [
 
 export async function loadMmlu(n: number): Promise<MmluItem[]> {
   if (process.env.DISABLE_DATASET_FETCH) return MMLU_FALLBACK.slice(0, n);
-  const dest = join(MODEL_CACHE_DIR, `mmlu-${n}.json`);
+  // 'spread' = sampled across subjects (cache-busts the earlier single-subject slice).
+  const dest = join(MODEL_CACHE_DIR, `mmlu-spread-${n}.json`);
   if (existsSync(dest)) {
     try {
       return JSON.parse(await readFile(dest, 'utf8')) as MmluItem[];
@@ -145,19 +146,30 @@ export async function loadMmlu(n: number): Promise<MmluItem[]> {
     }
   }
   try {
-    const url = `https://datasets-server.huggingface.co/rows?dataset=cais%2Fmmlu&config=all&split=test&offset=0&length=${n}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`mmlu fetch failed: ${res.status}`);
-    const json = (await res.json()) as { rows: { row: any }[] };
-    const items: MmluItem[] = json.rows.map((r) => ({
-      subject: String(r.row.subject ?? 'general'),
-      question: String(r.row.question),
-      choices: (r.row.choices as string[]).map(String),
-      answerIdx: Number(r.row.answer),
-    }));
+    // MMLU 'all' is ordered by subject (alphabetical), so a single offset lands
+    // entirely in one subject. Sample across spread offsets for a representative
+    // mix of the 57 subjects — the standard way MMLU is reported (averaged).
+    const offsets = [600, 3300, 6000, 8700, 11400];
+    const per = Math.max(1, Math.ceil(n / offsets.length));
+    const items: MmluItem[] = [];
+    for (const offset of offsets) {
+      if (items.length >= n) break;
+      const url = `https://datasets-server.huggingface.co/rows?dataset=cais%2Fmmlu&config=all&split=test&offset=${offset}&length=${per}`;
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`mmlu fetch failed: ${res.status}`);
+      const json = (await res.json()) as { rows: { row: any }[] };
+      for (const r of json.rows) {
+        items.push({
+          subject: String(r.row.subject ?? 'general'),
+          question: String(r.row.question),
+          choices: (r.row.choices as string[]).map(String),
+          answerIdx: Number(r.row.answer),
+        });
+      }
+    }
     if (items.length > 0) {
       await writeFile(dest, JSON.stringify(items));
-      log.info('fetched MMLU slice', { count: items.length });
+      log.info('fetched MMLU slice', { count: items.length, subjects: [...new Set(items.map((i) => i.subject))] });
       return items;
     }
     throw new Error('empty MMLU response');
