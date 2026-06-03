@@ -124,6 +124,33 @@ async function runScenario(
     mergedResult: r.mergedResult ?? null,
   }));
 
+  // Aggregate a standardized quality metric from the job outputs where present:
+  // mean WER for transcription, accuracy for the MMLU LLM eval.
+  const inners = requests
+    .map((r) => {
+      const mr = r.mergedResult as unknown;
+      return Array.isArray(mr) && mr.length && typeof mr[0] === 'object'
+        ? ((mr[0] as { result?: Record<string, unknown> }).result ?? null)
+        : null;
+    })
+    .filter((x): x is Record<string, unknown> => x !== null);
+
+  let qualityMetric: string | undefined;
+  let qualityValue: number | undefined;
+  if (scenario.workloadType === 'transcription') {
+    const wers = inners.map((x) => x.wer).filter((v): v is number => typeof v === 'number');
+    if (wers.length) {
+      qualityMetric = 'WER';
+      qualityValue = Math.round((wers.reduce((a, b) => a + b, 0) / wers.length) * 1000) / 1000;
+    }
+  } else if (scenario.workloadType === 'llm_generate') {
+    const flags = inners.map((x) => x.correct).filter((v): v is boolean => typeof v === 'boolean');
+    if (flags.length) {
+      qualityMetric = 'accuracy';
+      qualityValue = Math.round((flags.filter(Boolean).length / flags.length) * 1000) / 1000;
+    }
+  }
+
   await qa.addQaResult({
     runId,
     scenarioKey: scenario.key,
@@ -136,7 +163,7 @@ async function runScenario(
     latencyMaxMs: latencies.length ? latencies[latencies.length - 1] : undefined,
     throughputPerSec:
       wallClockMs > 0 ? Math.round((succeeded / (wallClockMs / 1000)) * 100) / 100 : 0,
-    metrics: { perNodeJobs, wallClockMs, overflowRatio, sampleResults },
+    metrics: { perNodeJobs, wallClockMs, overflowRatio, sampleResults, qualityMetric, qualityValue },
   });
 
   log.info(

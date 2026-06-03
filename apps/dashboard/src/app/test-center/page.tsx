@@ -77,6 +77,7 @@ function ScenarioTable({ results }: { results: QaResult[] }) {
           <th>p50</th>
           <th>p95</th>
           <th>Throughput</th>
+          <th>Quality</th>
           <th>Overflow</th>
           <th>Per-node</th>
           <th></th>
@@ -97,6 +98,11 @@ function ScenarioTable({ results }: { results: QaResult[] }) {
                 <td>{fmtMs(r.latencyP50Ms)}</td>
                 <td>{fmtMs(r.latencyP95Ms)}</td>
                 <td>{r.throughputPerSec != null ? `${r.throughputPerSec}/s` : '—'}</td>
+                <td>
+                  {r.metrics.qualityMetric && r.metrics.qualityValue != null
+                    ? `${r.metrics.qualityMetric} ${Math.round(r.metrics.qualityValue * 100)}%`
+                    : '—'}
+                </td>
                 <td>{r.metrics.overflowRatio != null ? `${Math.round(r.metrics.overflowRatio * 100)}%` : '—'}</td>
                 <td className="font-mono text-xs text-muted">
                   {Object.values(dist).join(' / ') || '—'}
@@ -109,7 +115,7 @@ function ScenarioTable({ results }: { results: QaResult[] }) {
               </tr>
               {isOpen && (
                 <tr>
-                  <td colSpan={8} className="bg-ink/60">
+                  <td colSpan={9} className="bg-ink/60">
                     <pre className="max-h-96 overflow-auto whitespace-pre-wrap break-all p-3 text-xs text-emerald-200">
                       {JSON.stringify(
                         {

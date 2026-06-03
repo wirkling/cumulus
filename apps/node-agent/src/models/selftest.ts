@@ -19,7 +19,9 @@ async function main(): Promise<void> {
       const input =
         w === 'embeddings'
           ? { items: Array.from({ length: 16 }, (_, i) => `sample sentence number ${i} for embedding`) }
-          : {};
+          : w === 'llm_generate'
+            ? { mmlu: true }
+            : {};
       const { result, cpuSeconds } = await runModelWorkload(w, input);
       console.log(`wall ${Date.now() - t0}ms · cpuSeconds ${cpuSeconds.toFixed(2)}`);
       console.log(JSON.stringify(result, null, 2).slice(0, 700));

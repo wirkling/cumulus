@@ -13,7 +13,14 @@ import { join } from 'node:path';
 import type { ExecutorKind, WorkloadType } from '@cumulus/shared-types';
 import { withModel, MODEL_CACHE_DIR } from './manager.js';
 import { ocrFixturePng, OCR_PHRASE, synthAudio } from './fixtures.js';
+import { loadSpeechClip, loadMmlu, type MmluItem } from './datasets.js';
+import { wordErrorRate } from './eval.js';
 import { log } from '../log.js';
+
+// Rotating cursors so a scenario's requests cover different clips/questions.
+let clipCursor = 0;
+let mmluCursor = 0;
+let mmluCache: MmluItem[] | null = null;
 
 const EMB_MODEL = process.env.EMB_MODEL ?? 'Xenova/all-MiniLM-L6-v2';
 const ASR_MODEL = process.env.ASR_MODEL ?? 'Xenova/whisper-tiny.en';
@@ -118,9 +125,23 @@ async function runOcr(): Promise<ModelRunResult> {
   );
 }
 
-// ─── Transcription ───────────────────────────────────────────────────────────
+// ─── Transcription (real speech clip → WER) ──────────────────────────────────
 async function runTranscription(): Promise<ModelRunResult> {
-  const seconds = 4;
+  // Load a real public-domain clip with a reference transcript (rotating).
+  let audio: Float32Array;
+  let reference: string | null = null;
+  let clipName = 'synthetic';
+  try {
+    const clip = await loadSpeechClip(clipCursor++);
+    audio = clip.samples;
+    reference = clip.reference;
+    clipName = clip.name;
+  } catch (err) {
+    log.warn('speech clip unavailable, using synthetic audio (no WER)', { err: String(err) });
+    audio = synthAudio(4);
+  }
+  const seconds = Math.round((audio.length / 16000) * 100) / 100;
+
   return withModel(
     'transcription',
     async () => {
@@ -129,17 +150,21 @@ async function runTranscription(): Promise<ModelRunResult> {
       return { instance: transcriber, unload: async () => { await transcriber.dispose?.(); } };
     },
     async (transcriber: any) => {
-      const audio = synthAudio(seconds);
       const t0 = performance.now();
       const out = await transcriber(audio, { chunk_length_s: 30 });
       const ms = performance.now() - t0;
+      const text = String(out.text ?? '').trim();
       return {
         result: {
           model: ASR_MODEL,
-          text: String(out.text ?? '').trim(),
+          clip: clipName,
+          text,
+          reference: reference ?? undefined,
+          // WER = standard ASR accuracy metric (lower is better).
+          wer: reference != null ? wordErrorRate(reference, text) : undefined,
           audioSeconds: seconds,
           // real-time factor: processing time / audio length (<1 = faster than real-time)
-          rtf: Math.round((ms / 1000 / seconds) * 100) / 100,
+          rtf: Math.round((ms / 1000 / Math.max(0.01, seconds)) * 100) / 100,
         },
         cpuSeconds: ms / 1000,
       };
@@ -148,7 +173,10 @@ async function runTranscription(): Promise<ModelRunResult> {
 }
 
 // ─── Small LLM ───────────────────────────────────────────────────────────────
-async function runLlm(prompt: string, maxTokens: number): Promise<ModelRunResult> {
+/** Run `use` against a loaded Qwen model + a fresh context (single-slot). */
+async function withLlm<R>(
+  use: (gen: (prompt: string, maxTokens: number) => Promise<{ text: string; ms: number }>) => Promise<R>,
+): Promise<R> {
   return withModel(
     'llm',
     async () => {
@@ -168,27 +196,67 @@ async function runLlm(prompt: string, maxTokens: number): Promise<ModelRunResult
       const { LlamaChatSession } = await import('node-llama-cpp');
       const context = await model.createContext({ contextSize: 2048 });
       try {
-        const session = new LlamaChatSession({ contextSequence: context.getSequence() });
-        const t0 = performance.now();
-        const completion: string = await session.prompt(prompt, { maxTokens });
-        const ms = performance.now() - t0;
-        // Rough token estimate (≈4 chars/token) for a tokens/sec figure.
-        const tokens = Math.max(1, Math.round(completion.length / 4));
-        return {
-          result: {
-            model: 'qwen2.5-0.5b-instruct-q4',
-            prompt,
-            completion: completion.slice(0, 400),
-            tokens,
-            tokensPerSec: Math.round((tokens / (ms / 1000)) * 100) / 100,
-          },
-          cpuSeconds: ms / 1000,
+        const gen = async (prompt: string, maxTokens: number) => {
+          const session = new LlamaChatSession({ contextSequence: context.getSequence() });
+          const t0 = performance.now();
+          const text: string = await session.prompt(prompt, { maxTokens });
+          return { text, ms: performance.now() - t0 };
         };
+        return await use(gen);
       } finally {
         await context.dispose?.();
       }
     },
   );
+}
+
+async function runLlm(prompt: string, maxTokens: number): Promise<ModelRunResult> {
+  return withLlm(async (gen) => {
+    const { text, ms } = await gen(prompt, maxTokens);
+    const tokens = Math.max(1, Math.round(text.length / 4));
+    return {
+      result: {
+        model: 'qwen2.5-0.5b-instruct-q4',
+        prompt,
+        completion: text.slice(0, 400),
+        tokens,
+        tokensPerSec: Math.round((tokens / (ms / 1000)) * 100) / 100,
+      },
+      cpuSeconds: ms / 1000,
+    };
+  });
+}
+
+/** MMLU multiple-choice — reports correctness (the standard accuracy metric). */
+async function runLlmMmlu(): Promise<ModelRunResult> {
+  if (!mmluCache) mmluCache = await loadMmlu(20);
+  const item = mmluCache[mmluCursor++ % mmluCache.length]!;
+  const letters = ['A', 'B', 'C', 'D'];
+  const prompt =
+    `Answer with only the single letter (A, B, C, or D) of the correct option.\n\n` +
+    `${item.question}\n` +
+    item.choices.map((c, i) => `${letters[i]}. ${c}`).join('\n') +
+    `\nAnswer:`;
+
+  return withLlm(async (gen) => {
+    const { text, ms } = await gen(prompt, 5);
+    const m = text.toUpperCase().match(/[ABCD]/);
+    const predictedIdx = m ? letters.indexOf(m[0]) : -1;
+    const tokens = Math.max(1, Math.round(text.length / 4));
+    return {
+      result: {
+        model: 'qwen2.5-0.5b-instruct-q4',
+        eval: 'MMLU',
+        subject: item.subject,
+        question: item.question,
+        predicted: predictedIdx >= 0 ? letters[predictedIdx] : text.trim().slice(0, 12),
+        answer: letters[item.answerIdx],
+        correct: predictedIdx === item.answerIdx,
+        tokensPerSec: Math.round((tokens / (ms / 1000)) * 100) / 100,
+      },
+      cpuSeconds: ms / 1000,
+    };
+  });
 }
 
 /** Dispatch a Stage-2 workload to its executor. */
@@ -204,10 +272,13 @@ export async function runModelWorkload(
     case 'transcription':
       return runTranscription();
     case 'llm_generate':
-      return runLlm(
-        String(input.prompt ?? 'In one sentence, what is a distributed compute pool?'),
-        Number(input.maxTokens ?? 64),
-      );
+      // MMLU accuracy eval when requested (QA suite); free-form otherwise (real customers).
+      return input.mmlu
+        ? runLlmMmlu()
+        : runLlm(
+            String(input.prompt ?? 'In one sentence, what is a distributed compute pool?'),
+            Number(input.maxTokens ?? 64),
+          );
     default:
       throw new Error(`not a model workload: ${workloadType}`);
   }

@@ -81,6 +81,10 @@ export interface QaResultMetrics {
   overflowRatio?: number;
   /** A few real merged outputs, for the "unfold to JSON" view. */
   sampleResults?: QaSampleResult[];
+  /** Standardized quality metric for this scenario, e.g. 'WER' or 'accuracy'
+   * (value 0..1). Present for transcription/LLM; absent for pure throughput. */
+  qualityMetric?: string;
+  qualityValue?: number;
   [key: string]: unknown;
 }
 
@@ -207,13 +211,14 @@ export const QA_SUITE: QaSuite = {
       useCase: 'llm',
       kind: 'latency',
       workloadType: 'llm_generate',
-      requestCount: 3,
+      requestCount: 4,
       fanOut: 1,
       completionPolicy: 'wait_for_all',
       mergeStrategy: 'collect',
       timeoutSeconds: 300,
-      input: { prompt: 'In one sentence, what is a distributed compute pool?', maxTokens: 48 },
-      description: 'Small-LLM tokens/sec on CPU (Qwen2.5-0.5B) — documents where we fall flat.',
+      // MMLU multiple-choice → real accuracy metric (+ tokens/sec).
+      input: { mmlu: true },
+      description: 'Small-LLM on MMLU (Qwen2.5-0.5B): accuracy + tokens/sec on CPU — where we fall flat.',
     },
     {
       key: 'overflow',
