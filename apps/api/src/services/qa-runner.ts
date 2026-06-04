@@ -14,6 +14,7 @@ import {
   type QaRunSummary,
   type Request as JobRequest,
 } from '@cumulus/shared-types';
+import { nodeMatchesRequiredCapabilities, requiredCapabilitiesFor } from '@cumulus/orchestration';
 import { enqueueRequest } from './submit.js';
 import { dispatchPlaceableJobs } from './placement.js';
 
@@ -70,6 +71,30 @@ async function runScenario(
   log: FastifyBaseLogger,
 ): Promise<void> {
   const startMs = Date.now();
+
+  // Preflight: skip a scenario whose required capabilities no online node can
+  // satisfy (e.g. the GPU scenario on a CPU-only fleet) — record it as skipped
+  // instead of letting it sit queued until timeout.
+  const required = requiredCapabilitiesFor(scenario.workloadType);
+  if (Object.keys(required).length > 0) {
+    const candidates = await nodes.getPlacementCandidates();
+    const eligible = candidates.some(
+      (c) => c.status === 'online' && !c.unavailable && nodeMatchesRequiredCapabilities(c, required),
+    );
+    if (!eligible) {
+      await qa.addQaResult({
+        runId,
+        scenarioKey: scenario.key,
+        useCase: scenario.useCase,
+        requestCount: 0,
+        succeeded: 0,
+        failed: 0,
+        metrics: { skipped: true, reason: 'no node satisfies required capabilities', required },
+      });
+      log.info({ runId, scenario: scenario.key }, 'QA scenario skipped (no eligible node)');
+      return;
+    }
+  }
 
   // Build a real burst: enqueue all requests, then a single dispatch pass.
   const created = await Promise.all(
@@ -143,7 +168,7 @@ async function runScenario(
       qualityMetric = 'WER';
       qualityValue = Math.round((wers.reduce((a, b) => a + b, 0) / wers.length) * 1000) / 1000;
     }
-  } else if (scenario.workloadType === 'llm_generate') {
+  } else if (scenario.workloadType === 'llm_generate' || scenario.workloadType === 'gpu_llm') {
     const flags = inners.map((x) => x.correct).filter((v): v is boolean => typeof v === 'boolean');
     if (flags.length) {
       qualityMetric = 'accuracy';

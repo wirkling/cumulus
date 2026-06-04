@@ -92,8 +92,14 @@ function ScenarioTable({ results }: { results: QaResult[] }) {
               <tr>
                 <td className="font-medium">{r.useCase}</td>
                 <td>
-                  {r.succeeded}/{r.requestCount}
-                  {r.failed > 0 && <span className="text-red-300"> ({r.failed}✗)</span>}
+                  {r.metrics.skipped ? (
+                    <span className="text-muted" title={String(r.metrics.reason ?? '')}>skipped</span>
+                  ) : (
+                    <>
+                      {r.succeeded}/{r.requestCount}
+                      {r.failed > 0 && <span className="text-red-300"> ({r.failed}✗)</span>}
+                    </>
+                  )}
                 </td>
                 <td>{fmtMs(r.latencyP50Ms)}</td>
                 <td>{fmtMs(r.latencyP95Ms)}</td>

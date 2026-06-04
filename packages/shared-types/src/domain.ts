@@ -57,12 +57,13 @@ export type WorkloadType =
   | 'embeddings'
   | 'ocr'
   | 'transcription'
-  | 'llm_generate';
+  | 'llm_generate'
+  | 'gpu_llm';
 
 /** Executors a node can run — advertised in capabilities, gated at placement.
- * A GPU node later advertises these with a high benchmark and the heavy ones
- * route there, overflowing to the CPU pool (zero control-plane change). */
-export type ExecutorKind = 'embeddings' | 'ocr' | 'transcription' | 'llm';
+ * A GPU node advertises `gpu` (+ a high benchmark), so GPU-gated workloads route
+ * there and the rest overflows to the CPU pool — zero control-plane change. */
+export type ExecutorKind = 'embeddings' | 'ocr' | 'transcription' | 'llm' | 'gpu';
 
 export type BenchmarkType =
   | 'cpu'
@@ -184,6 +185,12 @@ export interface HeartbeatMetrics {
   temperatureC?: number;
   /** Measured by the agent on each heartbeat — drives the benchmark/latency view. */
   controlPlaneLatencyMs?: number;
+  /** GPU telemetry (when present) — utilization, VRAM, thermals, and power draw.
+   * Power feeds the economics + heat-reuse story. */
+  gpuUsagePct?: number;
+  gpuMemUsedMb?: number;
+  gpuTempC?: number;
+  gpuPowerW?: number;
 }
 
 export interface NodeHeartbeat {

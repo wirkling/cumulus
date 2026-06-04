@@ -2,6 +2,7 @@
 import { cpus, freemem, totalmem } from 'node:os';
 import { statfs } from 'node:fs/promises';
 import type { HeartbeatMetrics } from '@cumulus/shared-types';
+import { queryGpuMetrics } from './gpu.js';
 
 interface CpuSnapshot {
   idle: number;
@@ -41,10 +42,12 @@ async function diskUsagePct(): Promise<number | undefined> {
 }
 
 export async function collectMetrics(controlPlaneLatencyMs?: number): Promise<HeartbeatMetrics> {
+  const gpu = await queryGpuMetrics(); // null on CPU-only nodes
   return {
     cpuUsagePct: cpuUsagePct(),
     ramUsagePct: Math.round((1 - freemem() / totalmem()) * 100),
     diskUsagePct: await diskUsagePct(),
     controlPlaneLatencyMs,
+    ...(gpu ?? {}),
   };
 }

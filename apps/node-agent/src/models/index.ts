@@ -24,10 +24,30 @@ let mmluCache: MmluItem[] | null = null;
 
 const EMB_MODEL = process.env.EMB_MODEL ?? 'Xenova/all-MiniLM-L6-v2';
 const ASR_MODEL = process.env.ASR_MODEL ?? 'Xenova/whisper-tiny.en';
-const LLM_GGUF_URL =
-  process.env.LLM_GGUF_URL ??
-  'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf';
-const LLM_GGUF_FILE = join(MODEL_CACHE_DIR, 'qwen2.5-0.5b-instruct-q4_k_m.gguf');
+// Two LLM tiers: a tiny model on CPU, a bigger one on GPU. The GPU node sets
+// LLM_GGUF_URL_GPU (default a 7B Q4 that fits a 24GB card) and node-llama-cpp
+// auto-offloads to the GPU.
+interface LlmTierConfig {
+  url: string;
+  file: string;
+  label: string;
+}
+const LLM_TIERS: Record<'cpu' | 'gpu', LlmTierConfig> = {
+  cpu: {
+    url:
+      process.env.LLM_GGUF_URL ??
+      'https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF/resolve/main/qwen2.5-0.5b-instruct-q4_k_m.gguf',
+    file: join(MODEL_CACHE_DIR, 'qwen2.5-0.5b-instruct-q4_k_m.gguf'),
+    label: 'qwen2.5-0.5b-instruct-q4',
+  },
+  gpu: {
+    url:
+      process.env.LLM_GGUF_URL_GPU ??
+      'https://huggingface.co/Qwen/Qwen2.5-7B-Instruct-GGUF/resolve/main/qwen2.5-7b-instruct-q4_k_m.gguf',
+    file: join(MODEL_CACHE_DIR, process.env.LLM_GGUF_FILE_GPU ?? 'qwen2.5-7b-instruct-q4_k_m.gguf'),
+    label: process.env.LLM_LABEL_GPU ?? 'qwen2.5-7b-instruct-q4',
+  },
+};
 
 /** Which executors this node advertises. Default all four; restrict via env. */
 const ALL_EXECUTORS = ['embeddings', 'ocr', 'transcription', 'llm'];
@@ -172,18 +192,23 @@ async function runTranscription(): Promise<ModelRunResult> {
   );
 }
 
-// ─── Small LLM ───────────────────────────────────────────────────────────────
-/** Run `use` against a loaded Qwen model + a fresh context (single-slot). */
+// ─── LLM (CPU tiny / GPU bigger) ─────────────────────────────────────────────
+/** Run `use` against a loaded Qwen model + a fresh context (single-slot). The
+ * model manager key is per-tier so CPU/GPU models don't evict each other. */
 async function withLlm<R>(
+  tier: 'cpu' | 'gpu',
   use: (gen: (prompt: string, maxTokens: number) => Promise<{ text: string; ms: number }>) => Promise<R>,
 ): Promise<R> {
+  const cfg = LLM_TIERS[tier];
   return withModel(
-    'llm',
+    `llm-${tier}`,
     async () => {
-      await ensureFile(LLM_GGUF_URL, LLM_GGUF_FILE);
+      await ensureFile(cfg.url, cfg.file);
       const { getLlama } = await import('node-llama-cpp');
       const llama = await getLlama();
-      const model = await llama.loadModel({ modelPath: LLM_GGUF_FILE });
+      // gpuLayers auto-offloads to the GPU when one is present (no-op on CPU).
+      const model = await llama.loadModel({ modelPath: cfg.file });
+      log.info('llm model ready', { tier, gpu: (llama as any).gpu ?? 'cpu' });
       return {
         instance: { llama, model },
         unload: async () => {
@@ -210,13 +235,14 @@ async function withLlm<R>(
   );
 }
 
-async function runLlm(prompt: string, maxTokens: number): Promise<ModelRunResult> {
-  return withLlm(async (gen) => {
+async function runLlm(tier: 'cpu' | 'gpu', prompt: string, maxTokens: number): Promise<ModelRunResult> {
+  return withLlm(tier, async (gen) => {
     const { text, ms } = await gen(prompt, maxTokens);
     const tokens = Math.max(1, Math.round(text.length / 4));
     return {
       result: {
-        model: 'qwen2.5-0.5b-instruct-q4',
+        model: LLM_TIERS[tier].label,
+        tier,
         prompt,
         completion: text.slice(0, 400),
         tokens,
@@ -228,7 +254,7 @@ async function runLlm(prompt: string, maxTokens: number): Promise<ModelRunResult
 }
 
 /** MMLU multiple-choice — reports correctness (the standard accuracy metric). */
-async function runLlmMmlu(): Promise<ModelRunResult> {
+async function runLlmMmlu(tier: 'cpu' | 'gpu'): Promise<ModelRunResult> {
   if (!mmluCache) mmluCache = await loadMmlu(20);
   const item = mmluCache[mmluCursor++ % mmluCache.length]!;
   const letters = ['A', 'B', 'C', 'D'];
@@ -238,14 +264,15 @@ async function runLlmMmlu(): Promise<ModelRunResult> {
     item.choices.map((c, i) => `${letters[i]}. ${c}`).join('\n') +
     `\nAnswer:`;
 
-  return withLlm(async (gen) => {
+  return withLlm(tier, async (gen) => {
     const { text, ms } = await gen(prompt, 5);
     const m = text.toUpperCase().match(/[ABCD]/);
     const predictedIdx = m ? letters.indexOf(m[0]) : -1;
     const tokens = Math.max(1, Math.round(text.length / 4));
     return {
       result: {
-        model: 'qwen2.5-0.5b-instruct-q4',
+        model: LLM_TIERS[tier].label,
+        tier,
         eval: 'MMLU',
         subject: item.subject,
         question: item.question,
@@ -272,13 +299,17 @@ export async function runModelWorkload(
     case 'transcription':
       return runTranscription();
     case 'llm_generate':
+    case 'gpu_llm': {
+      const tier = workloadType === 'gpu_llm' ? 'gpu' : 'cpu';
       // MMLU accuracy eval when requested (QA suite); free-form otherwise (real customers).
       return input.mmlu
-        ? runLlmMmlu()
+        ? runLlmMmlu(tier)
         : runLlm(
+            tier,
             String(input.prompt ?? 'In one sentence, what is a distributed compute pool?'),
             Number(input.maxTokens ?? 64),
           );
+    }
     default:
       throw new Error(`not a model workload: ${workloadType}`);
   }
@@ -289,4 +320,5 @@ export const MODEL_WORKLOADS: ReadonlySet<WorkloadType> = new Set<WorkloadType>(
   'ocr',
   'transcription',
   'llm_generate',
+  'gpu_llm',
 ]);

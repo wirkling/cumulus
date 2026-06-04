@@ -33,7 +33,7 @@ const capabilitySchema = z
     cudaAvailable: z.boolean().optional(),
     rocmAvailable: z.boolean().optional(),
     metalAvailable: z.boolean().optional(),
-    executors: z.array(z.enum(['embeddings', 'ocr', 'transcription', 'llm'])).optional(),
+    executors: z.array(z.enum(['embeddings', 'ocr', 'transcription', 'llm', 'gpu'])).optional(),
   })
   .strict();
 
@@ -65,6 +65,10 @@ const heartbeatSchema = z.object({
       diskUsagePct: z.number().optional(),
       temperatureC: z.number().optional(),
       controlPlaneLatencyMs: z.number().optional(),
+      gpuUsagePct: z.number().optional(),
+      gpuMemUsedMb: z.number().optional(),
+      gpuTempC: z.number().optional(),
+      gpuPowerW: z.number().optional(),
     })
     .default({}),
 });

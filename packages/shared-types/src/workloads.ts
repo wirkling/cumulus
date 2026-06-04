@@ -95,6 +95,16 @@ export const WORKLOADS: Record<WorkloadType, WorkloadDefinition> = {
     placementWeights: { distance: 0.05, queue: 0.35, benchmark: 0.5, cost: 0.1 },
     defaultTimeoutSeconds: 300,
   },
+  // GPU tier — gated to nodes advertising the `gpu` executor; runs a bigger
+  // model at interactive speed. On a CPU-only fleet this is skipped.
+  gpu_llm: {
+    type: 'gpu_llm',
+    requiredCapabilities: { executor: 'gpu' },
+    defaultMergeStrategy: 'collect',
+    fanOutable: false,
+    placementWeights: { distance: 0.0, queue: 0.3, benchmark: 0.6, cost: 0.1 },
+    defaultTimeoutSeconds: 300,
+  },
 };
 
 /** A few preset German origins for the dashboard's submit form (spec §8). */
