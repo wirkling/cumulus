@@ -10,6 +10,9 @@ import {
   series,
   boardKpis,
   estimateProperty,
+  projectedMrr,
+  ASSUMPTIONS,
+  revPerKwMonth,
   PIPELINE,
   fmtEur,
   fmtEurFull,
@@ -215,6 +218,8 @@ export default function BoardPage() {
 
       <Pipeline role={role} />
 
+      <Assumptions />
+
       <footer className="mt-8 text-xs leading-relaxed" style={{ color: 'var(--slate)' }}>
         Standorte und Status sind <strong style={{ color: 'var(--ink)' }}>live</strong> aus der
         Cumulus-Steuerung. Auslastung, Einnahmen und Energiewerte sind für diese Vorschau{' '}
@@ -313,9 +318,52 @@ function ExecSummary({ kpis }: { kpis: ReturnType<typeof boardKpis> }) {
   );
 }
 
+// ── Assumptions (single source of truth, made transparent) ───────────────────
+function Assumptions() {
+  const de = (n: number) => String(n).replace('.', ',');
+  const rows: [string, string][] = [
+    ['Ertrag je GPU / Monat (Model A/B)', ca(fmtEurFull(ASSUMPTIONS.revPerGpuMonth))],
+    ['Daraus: Ertrag je kW / Monat', ca(fmtEurFull(Math.round(revPerKwMonth)))],
+    ['Leistung je GPU (inkl. Kühlung, PUE ≈ 1,3)', `${de(ASSUMPTIONS.kwPerGpu)} kW`],
+    ['Fläche je GPU (inkl. Gang/Technik)', `${de(ASSUMPTIONS.sqmPerGpu)} m²`],
+    ['Ziel-Auslastung', `${ASSUMPTIONS.targetUtilizationPct}%`],
+    ['Strompreis', `${de(ASSUMPTIONS.energyPriceEurKwh)} €/kWh`],
+    ['Eigenstrom (Solar), Ø', `${ASSUMPTIONS.avgSolarPct}%`],
+  ];
+  return (
+    <section className="reveal mt-6" style={{ '--d': '680ms' } as React.CSSProperties}>
+      <details className="b-card b-card-pad">
+        <summary className="board-display text-base" style={{ cursor: 'pointer', color: 'var(--navy)' }}>
+          Annahmen
+        </summary>
+        <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--slate)' }}>
+          Alle Beträge auf dieser Seite leiten sich aus diesen Annahmen ab — Schätzungen für die
+          Vorschau. Standorte und Status sind live.
+        </p>
+        <div className="mt-2 grid grid-cols-1 gap-x-8 sm:grid-cols-2">
+          {rows.map(([l, v]) => (
+            <div
+              key={l}
+              className="flex items-baseline justify-between py-1.5"
+              style={{ borderTop: '1px solid var(--line)' }}
+            >
+              <span className="text-sm" style={{ color: 'var(--slate)' }}>
+                {l}
+              </span>
+              <span className="board-display text-sm" style={{ color: 'var(--navy)' }}>
+                {v}
+              </span>
+            </div>
+          ))}
+        </div>
+      </details>
+    </section>
+  );
+}
+
 // ── Expansion pipeline ───────────────────────────────────────────────────────
 function Pipeline({ role }: { role: Role }) {
-  const total = PIPELINE.reduce((a, p) => a + p.projectedMrrEur, 0);
+  const total = PIPELINE.reduce((a, p) => a + projectedMrr(p.projectedKw), 0);
   return (
     <section className="reveal mb-2" style={{ '--d': '600ms' } as React.CSSProperties}>
       <div className="mb-3 flex items-baseline justify-between">
@@ -349,7 +397,9 @@ function Pipeline({ role }: { role: Role }) {
                 </td>
                 <td className="text-right tabular-nums">{p.projectedKw} kW</td>
                 <td className="text-right tabular-nums" style={{ color: 'var(--ink)' }}>
-                  {role === 'board' ? fmtEurFull(p.projectedMrrEur * 12) : ca(fmtEurFull(p.projectedMrrEur))}
+                  {role === 'board'
+                    ? fmtEurFull(projectedMrr(p.projectedKw) * 12)
+                    : ca(fmtEurFull(projectedMrr(p.projectedKw)))}
                 </td>
               </tr>
             ))}
@@ -381,7 +431,8 @@ function PropertyModal({ onClose }: { onClose: () => void }) {
         </h3>
         <p className="mt-1 text-sm" style={{ color: 'var(--slate)' }}>
           Schätzen Sie das Potenzial einer Fläche — z. B. ein Technikraum oder ein leerstehendes
-          Ladenlokal. Angaben: verfügbare Fläche und Anschlussleistung.
+          Ladenlokal. Maßgeblich sind verfügbare Fläche und vor allem die Anschlussleistung
+          (in der Regel der Engpass).
         </p>
 
         <div className="mt-4 grid grid-cols-2 gap-3">
@@ -407,11 +458,29 @@ function PropertyModal({ onClose }: { onClose: () => void }) {
         </div>
 
         {ready && (
-          <p className="mt-3 text-xs leading-relaxed" style={{ color: 'var(--slate)' }}>
-            Begrenzt durch {est.limitedBy === 'power' ? 'die Anschlussleistung' : 'die Fläche'} ·
-            rund {est.capacityKw} kW Rechenlast · ≈ {ca(fmtEurFull(est.monthlyRevenueEur * 12))}/Jahr.
-            Grobe Planungsschätzung — keine Zusage.
-          </p>
+          <div className="mt-3 rounded-lg p-3 text-xs leading-relaxed" style={{ background: '#f1eee6', color: 'var(--slate)' }}>
+            <div className="flex items-center justify-between">
+              <span>Anschlussleistung erlaubt</span>
+              <span className="tabular-nums" style={{ color: 'var(--navy)', fontWeight: est.limitedBy === 'power' ? 700 : 400 }}>
+                {fmtNum(est.byPower)} GPUs
+              </span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Fläche erlaubt</span>
+              <span className="tabular-nums" style={{ color: 'var(--navy)', fontWeight: est.limitedBy === 'space' ? 700 : 400 }}>
+                {fmtNum(est.bySpace)} GPUs
+              </span>
+            </div>
+            <div className="mt-2">
+              Begrenzend:{' '}
+              <strong style={{ color: 'var(--navy)' }}>
+                {est.limitedBy === 'power' ? 'Anschlussleistung' : 'Fläche'}
+              </strong>{' '}
+              — meist ist die Anschlussleistung der Engpass. Rund {est.capacityKw} kW Rechenlast, ≈{' '}
+              {ca(fmtEurFull(est.monthlyRevenueEur * 12))}/Jahr (bei Ziel-Auslastung). Grobe
+              Planungsschätzung — keine Zusage.
+            </div>
+          </div>
         )}
 
         <div className="mt-5 flex justify-end gap-2">

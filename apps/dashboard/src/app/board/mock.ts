@@ -1,11 +1,24 @@
 /**
- * Board-view economics. The NODES are real (live from the control plane); the
- * business figures here are SIMULATED — deterministically seeded from each
- * node's id so they're stable across refreshes and look like a real ledger.
- * This is the presentation/mock layer per the brief; swap for real metering when
- * the economics pipeline exists.
+ * Board-view economics — ONE shared assumptions block; everything (site
+ * revenue, the property calculator, the pipeline, gross margin) derives from it,
+ * so the numbers are internally consistent. NODES are real (live from the
+ * control plane); the money is SIMULATED and deterministically seeded per node
+ * id. Anchored on GPU/target economics — all figures are "geschätzt" (preview).
  */
 import type { NodeSummary } from '@cumulus/shared-types';
+
+// ── single source of truth ───────────────────────────────────────────────────
+export const ASSUMPTIONS = {
+  revPerGpuMonth: 320, // est. €/GPU/month (Model A/B blended) — the anchor
+  kwPerGpu: 0.9, // GPU + cooling/overhead (PUE ≈ 1.3)
+  sqmPerGpu: 0.5, // effective m²/GPU in a building retrofit (rack + aisle + cooling/electrical)
+  targetUtilizationPct: 72, // assumed steady-state utilization
+  energyPriceEurKwh: 0.22, // €/kWh
+  avgSolarPct: 18, // avg on-site generation share
+};
+const HOURS_PER_MONTH = 730;
+/** Derived: every €/kW figure on the board uses this one rate (≈ €355). */
+export const revPerKwMonth = ASSUMPTIONS.revPerGpuMonth / ASSUMPTIONS.kwPerGpu;
 
 // ── deterministic PRNG (so server/client + refreshes agree) ──────────────────
 function hashStr(s: string): number {
@@ -30,7 +43,7 @@ const pick = <T,>(r: () => number, xs: T[]): T => xs[Math.floor(r() * xs.length)
 
 export interface Site {
   id: string;
-  name: string; // node name
+  name: string;
   buildingName: string;
   siteType: string;
   city: string;
@@ -40,8 +53,8 @@ export interface Site {
   kind: 'gpu' | 'cpu';
   capacityKw: number;
   powerDrawKw: number;
-  gridDrawKw: number; // grid draw after any on-site solar offset
-  solarPct: number; // share of power self-supplied
+  gridDrawKw: number;
+  solarPct: number;
   utilizationPct: number;
   monthlyRevenueEur: number;
   uptimePct: number;
@@ -55,7 +68,8 @@ const SITE_TYPES = [
   'Dachzentrale',
 ];
 
-/** Derive a plausible micro-DC "site" economic profile from a real node. */
+/** Derive a site economic profile from a real node — all revenue at the shared
+ * rate (revPerKwMonth), scaled by the site's actual utilization. */
 export function siteFromNode(n: NodeSummary): Site {
   const r = rng(n.id);
   const kind: 'gpu' | 'cpu' = (n.capability?.gpuCount ?? 0) > 0 ? 'gpu' : 'cpu';
@@ -63,11 +77,14 @@ export function siteFromNode(n: NodeSummary): Site {
   const capacityKw = kind === 'gpu' ? 3 + Math.round(r() * 5) : 1 + Math.round(r() * 2);
   const utilizationPct = online ? Math.round(38 + r() * 56) : 0;
   const powerDrawKw = +(capacityKw * (0.32 + (utilizationPct / 100) * 0.62)).toFixed(2);
-  const solarPct = r() > 0.45 ? Math.round(r() * 38) : 0;
+  const solarPct = r() < 0.72 ? Math.round(ASSUMPTIONS.avgSolarPct * (0.5 + r() * 1.4)) : 0;
   const gridDrawKw = +(powerDrawKw * (1 - solarPct / 100)).toFixed(2);
-  const ratePerKwMonth = kind === 'gpu' ? 320 + r() * 150 : 110 + r() * 90;
+  // Revenue derives from the SHARED rate: kW → GPU-equivalents × €/GPU, scaled
+  // by realized vs target utilization. At target utilization this equals
+  // capacityKw × revPerKwMonth.
+  const gpusEq = capacityKw / ASSUMPTIONS.kwPerGpu;
   const monthlyRevenueEur = Math.round(
-    capacityKw * ratePerKwMonth * (0.55 + utilizationPct / 230),
+    gpusEq * ASSUMPTIONS.revPerGpuMonth * (utilizationPct / ASSUMPTIONS.targetUtilizationPct),
   );
   const city = n.location?.city ?? n.location?.name ?? 'Unknown';
   return {
@@ -113,8 +130,7 @@ export function series(site: Site, kind: SeriesKind, points = 24): number[] {
   return out;
 }
 
-// ── portfolio aggregates ─────────────────────────────────────────────────────
-
+// ── portfolio aggregates (all derived from the sites) ────────────────────────
 export interface BoardKpis {
   mrrEur: number;
   arrEur: number;
@@ -126,8 +142,9 @@ export interface BoardKpis {
   totalPowerKw: number;
   totalGridKw: number;
   solarSharePct: number;
+  energyCostEur: number;
   customers: number;
-  mrrTrend: number[]; // last 6 months
+  mrrTrend: number[];
 }
 
 export function boardKpis(sites: Site[], customers: number): BoardKpis {
@@ -139,7 +156,10 @@ export function boardKpis(sites: Site[], customers: number): BoardKpis {
   const avgUtil = live.length
     ? Math.round(live.reduce((a, s) => a + s.utilizationPct, 0) / live.length)
     : 0;
-  // 6-month MRR ramp ending at current MRR (deterministic, gently compounding).
+  // Gross margin derives from the energy assumption: only grid power is paid for.
+  const energyCost = Math.round(grid * HOURS_PER_MONTH * ASSUMPTIONS.energyPriceEurKwh);
+  const grossMargin = mrr > 0 ? Math.round((1 - energyCost / mrr) * 100) : 0;
+  // 6-month ramp ending at the (derived) current MRR.
   const r = rng('mrr-trend');
   const trend: number[] = [];
   let v = mrr * 0.52;
@@ -152,19 +172,19 @@ export function boardKpis(sites: Site[], customers: number): BoardKpis {
     arrEur: mrr * 12,
     liveSites: live.length,
     avgUtilizationPct: avgUtil,
-    grossMarginPct: 61 + (sites.length % 5),
+    grossMarginPct: grossMargin,
     revenuePerKwEur: cap ? Math.round(mrr / cap) : 0,
     totalCapacityKw: cap,
     totalPowerKw: power,
     totalGridKw: grid,
     solarSharePct: power ? Math.round((1 - grid / power) * 100) : 0,
+    energyCostEur: energyCost,
     customers,
     mrrTrend: trend,
   };
 }
 
-// ── expansion pipeline (candidate buildings, not yet live) ───────────────────
-
+// ── expansion pipeline (revenue derived, not hardcoded) ──────────────────────
 export type PipelineStage = 'signed' | 'survey' | 'candidate';
 
 export interface PipelineSite {
@@ -172,19 +192,21 @@ export interface PipelineSite {
   buildingName: string;
   stage: PipelineStage;
   projectedKw: number;
-  projectedMrrEur: number;
   lat: number;
   lng: number;
 }
 
-/** Candidate buildings in TAMAX's Berlin-Brandenburg portfolio, framed as growth. */
+/** Candidate buildings in TAMAX's Berlin-Brandenburg portfolio. */
 export const PIPELINE: PipelineSite[] = [
-  { city: 'Potsdam', buildingName: 'Wohn-/Gewerbe — Erdgeschoss', stage: 'signed', projectedKw: 6, projectedMrrEur: 7200, lat: 52.4, lng: 13.06 },
-  { city: 'Brandenburg a.d. Havel', buildingName: 'Quartier — Technikgeschoss', stage: 'survey', projectedKw: 9, projectedMrrEur: 10800, lat: 52.41, lng: 12.55 },
-  { city: 'Oranienburg', buildingName: 'Gewerbeeinheit — Technikraum', stage: 'survey', projectedKw: 4, projectedMrrEur: 5400, lat: 52.75, lng: 13.24 },
-  { city: 'Cottbus', buildingName: 'Leerstehendes Ladenlokal', stage: 'candidate', projectedKw: 5, projectedMrrEur: 6100, lat: 51.76, lng: 14.33 },
-  { city: 'Frankfurt (Oder)', buildingName: 'Büro — Technikgeschoss', stage: 'candidate', projectedKw: 4, projectedMrrEur: 5000, lat: 52.34, lng: 14.55 },
+  { city: 'Potsdam', buildingName: 'Wohn-/Gewerbe — Erdgeschoss', stage: 'signed', projectedKw: 12, lat: 52.4, lng: 13.06 },
+  { city: 'Brandenburg a.d. Havel', buildingName: 'Quartier — Technikgeschoss', stage: 'survey', projectedKw: 18, lat: 52.41, lng: 12.55 },
+  { city: 'Oranienburg', buildingName: 'Gewerbeeinheit — Technikraum', stage: 'survey', projectedKw: 9, lat: 52.75, lng: 13.24 },
+  { city: 'Cottbus', buildingName: 'Leerstehendes Ladenlokal', stage: 'candidate', projectedKw: 14, lat: 51.76, lng: 14.33 },
+  { city: 'Frankfurt (Oder)', buildingName: 'Büro — Technikgeschoss', stage: 'candidate', projectedKw: 8, lat: 52.34, lng: 14.55 },
 ];
+
+/** Projected monthly revenue for a pipeline site — same rate as everything else. */
+export const projectedMrr = (kw: number): number => Math.round(kw * revPerKwMonth);
 
 // German number formatting (de-DE): 12.345 thousands, comma decimals.
 export const fmtEur = (v: number): string => {
@@ -198,26 +220,27 @@ export const fmtEurFull = (v: number): string => '€' + Math.round(v).toLocaleS
 export const fmtNum = (v: number): string => Math.round(v).toLocaleString('de-DE');
 
 // ── property potential estimator (the "Immobilie hinzufügen" calculator) ─────
-// Planning heuristics for the preview: GPUs are limited by BOTH power and space.
-const KW_PER_GPU = 0.9; // GPU + cooling/overhead (PUE ≈ 1.3)
-const SQM_PER_GPU = 0.35; // incl. rack footprint + aisle share
-const REV_PER_GPU_MONTH = 320; // est. €/GPU/month (Model A/B blended)
-
+// GPUs are limited by BOTH power and space — and in a real building the
+// Anschlussleistung (power) is usually the binding constraint.
 export interface PropertyEstimate {
   gpus: number;
+  byPower: number;
+  bySpace: number;
   limitedBy: 'power' | 'space';
   monthlyRevenueEur: number;
   capacityKw: number;
 }
 
 export function estimateProperty(sqm: number, mw: number): PropertyEstimate {
-  const byPower = Math.floor(((mw || 0) * 1000) / KW_PER_GPU);
-  const bySpace = Math.floor((sqm || 0) / SQM_PER_GPU);
+  const byPower = Math.floor(((mw || 0) * 1000) / ASSUMPTIONS.kwPerGpu);
+  const bySpace = Math.floor((sqm || 0) / ASSUMPTIONS.sqmPerGpu);
   const gpus = Math.max(0, Math.min(byPower, bySpace));
   return {
     gpus,
+    byPower,
+    bySpace,
     limitedBy: byPower <= bySpace ? 'power' : 'space',
-    monthlyRevenueEur: gpus * REV_PER_GPU_MONTH,
-    capacityKw: +(gpus * KW_PER_GPU).toFixed(1),
+    monthlyRevenueEur: gpus * ASSUMPTIONS.revPerGpuMonth, // potential at target utilization
+    capacityKw: +(gpus * ASSUMPTIONS.kwPerGpu).toFixed(1),
   };
 }
