@@ -49,6 +49,7 @@ export default function BoardPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [energyPrice, setEnergyPrice] = useState(ASSUMPTIONS.energyPriceEurKwh);
   const [hostShare, setHostShare] = useState(ASSUMPTIONS.hostSharePct);
+  const [capexPerGpu, setCapexPerGpu] = useState(ASSUMPTIONS.capexPerGpuEur);
   const [added, setAdded] = useState<number[]>([]);
   const toggleAdd = (id: number) =>
     setAdded((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -60,8 +61,8 @@ export default function BoardPage() {
   );
   const effectiveSites = useMemo(() => [...sites, ...addedSites], [sites, addedSites]);
   const kpis = useMemo(
-    () => boardKpis(effectiveSites, customers?.length ?? 0, energyPrice, hostShare),
-    [effectiveSites, customers, energyPrice, hostShare],
+    () => boardKpis(effectiveSites, customers?.length ?? 0, energyPrice, hostShare, capexPerGpu),
+    [effectiveSites, customers, energyPrice, hostShare, capexPerGpu],
   );
   const selected = effectiveSites.find((s) => s.id === selId) ?? null;
 
@@ -115,9 +116,9 @@ export default function BoardPage() {
             ]
           : [
               { l: 'Bruttoumsatz', v: ca(fmtEurFull(kpis.grossEur)), s: `≈ ${fmtEur(kpis.grossArrEur)} / Jahr` },
-              { l: 'Cumulus-Netto', v: ca(fmtEurFull(kpis.cumulusNetEur)), s: 'nach Partner & Energie / Monat' },
-              { l: 'Cumulus-Marge', v: `${kpis.cumulusMarginPct}%`, s: 'vom Bruttoumsatz' },
-              { l: 'Kunden', v: String(kpis.customers), s: 'zahlende Nutzer' },
+              { l: 'Cumulus-Ergebnis', v: ca(fmtEurFull(kpis.cumulusResultEur)), s: 'nach Partner, Energie & Hardware / Mt' },
+              { l: 'Hardware-Investition', v: ca(fmtEurFull(kpis.capexEur)), s: `${fmtNum(kpis.gpus)} GPUs (Cumulus)` },
+              { l: 'Amortisation', v: `${kpis.paybackMonths} Mt`, s: 'bis Hardware bezahlt' },
             ]
         ).map((k, i) => (
           <div key={k.l} className="b-card b-card-pad reveal" style={{ '--d': `${80 + i * 60}ms` } as React.CSSProperties}>
@@ -245,8 +246,8 @@ export default function BoardPage() {
                 Gewerbeeinheiten — beherbergen Rechenleistung. Ihr Anteil:{' '}
                 <strong style={{ color: 'var(--ink)' }}>{ca(fmtEurFull(kpis.hostPayoutEur))}/Monat</strong>{' '}
                 ({pct(hostShare)}% vom Rechenumsatz von {ca(fmtEurFull(kpis.grossEur))}) an{' '}
-                {kpis.liveSites} {kpis.liveSites === 1 ? 'Standort' : 'Standorten'} — passiv; Strom und
-                Betrieb trägt Cumulus.
+                {kpis.liveSites} {kpis.liveSites === 1 ? 'Standort' : 'Standorten'} — passiv;
+                Hardware, Strom und Betrieb finanziert Cumulus.
               </p>
               <button className="b-btn-primary mt-3" onClick={() => setShowAdd(true)}>
                 + Immobilie hinzufügen
@@ -264,8 +265,8 @@ export default function BoardPage() {
                 <Ramp data={kpis.grossTrend} />
               </div>
               <div className="mt-2 text-xs" style={{ color: 'var(--slate)' }}>
-                {fmtEur(kpis.grossTrend[0] ?? 0)} → {ca(fmtEur(kpis.grossEur))} Brutto · Cumulus-Netto{' '}
-                {ca(fmtEur(kpis.cumulusNetEur))}/Monat
+                {fmtEur(kpis.grossTrend[0] ?? 0)} → {ca(fmtEur(kpis.grossEur))} Brutto · Ergebnis{' '}
+                {ca(fmtEur(kpis.cumulusResultEur))}/Monat
               </div>
             </div>
           )}
@@ -276,12 +277,12 @@ export default function BoardPage() {
       {role === 'owner' ? (
         <OwnerSites sites={addedSites} hostShare={hostShare} onSelect={setSelId} onAdd={() => setShowAdd(true)} />
       ) : (
-        <ExecSummary kpis={kpis} />
+        <ExecSummary kpis={kpis} capexPerGpu={capexPerGpu} setCapexPerGpu={setCapexPerGpu} />
       )}
 
       <Portfolio role={role} hostShare={hostShare} added={added} onToggleAdd={toggleAdd} />
 
-      <Assumptions energyPrice={energyPrice} hostShare={hostShare} />
+      <Assumptions energyPrice={energyPrice} hostShare={hostShare} capexPerGpu={capexPerGpu} />
 
       <footer className="mt-8 text-xs leading-relaxed" style={{ color: 'var(--slate)' }}>
         Standorte und Status sind <strong style={{ color: 'var(--ink)' }}>live</strong> aus der
@@ -365,17 +366,28 @@ function OwnerSites({
   );
 }
 
-// ── Exec Summary: the revenue waterfall ──────────────────────────────────────
-function ExecSummary({ kpis }: { kpis: ReturnType<typeof boardKpis> }) {
+// ── Exec Summary: the revenue → capex waterfall ──────────────────────────────
+function ExecSummary({
+  kpis,
+  capexPerGpu,
+  setCapexPerGpu,
+}: {
+  kpis: ReturnType<typeof boardKpis>;
+  capexPerGpu: number;
+  setCapexPerGpu: (v: number) => void;
+}) {
   const rows: { l: string; v: string; strong?: boolean }[] = [
     { l: 'Bruttoumsatz (Rechenleistung)', v: fmtEurFull(kpis.grossEur), strong: true },
     { l: `− Vergütung Immobilienpartner (${pct(kpis.hostSharePct)}%)`, v: '− ' + fmtEurFull(kpis.hostPayoutEur) },
     { l: '− Energiekosten (Cumulus)', v: '− ' + fmtEurFull(kpis.energyCostEur) },
-    { l: '= Cumulus-Nettoumsatz / Monat', v: fmtEurFull(kpis.cumulusNetEur), strong: true },
-    { l: 'Cumulus-Marge', v: `${kpis.cumulusMarginPct}%` },
-    { l: 'Cumulus-Jahresumsatz (Hochr.)', v: fmtEurFull(kpis.cumulusNetEur * 12) },
+    { l: '= Operativer Beitrag / Monat', v: fmtEurFull(kpis.contributionEur), strong: true },
+    { l: `− Hardware-Abschreibung (${ASSUMPTIONS.hardwareLifeMonths} Mt)`, v: '− ' + fmtEurFull(kpis.amortEur) },
+    { l: '= Cumulus-Ergebnis / Monat', v: fmtEurFull(kpis.cumulusResultEur), strong: true },
+    { l: 'Cumulus-Marge (Ergebnis/Brutto)', v: `${kpis.cumulusMarginPct}%` },
+    { l: 'Hardware-Investition (Capex)', v: fmtEurFull(kpis.capexEur) },
+    { l: 'GPUs (von Cumulus finanziert)', v: fmtNum(kpis.gpus) },
+    { l: 'Amortisation (Payback)', v: `${kpis.paybackMonths} Monate` },
     { l: 'Installierte Leistung', v: `${kpis.totalCapacityKw} kW` },
-    { l: 'Eigenstrom (Solar)', v: `${kpis.solarSharePct}%` },
     { l: 'Zahlende Kunden', v: String(kpis.customers) },
   ];
   return (
@@ -383,6 +395,25 @@ function ExecSummary({ kpis }: { kpis: ReturnType<typeof boardKpis> }) {
       <h2 className="board-display mb-3 text-lg" style={{ color: 'var(--navy)' }}>
         Wirtschaftlichkeit (Cumulus)
       </h2>
+      <div className="b-card b-card-pad mb-3 flex flex-wrap items-center gap-x-6 gap-y-2">
+        <span className="b-kpi-label" style={{ whiteSpace: 'nowrap' }}>
+          Hardware-Kosten je GPU (Capex)
+        </span>
+        <input
+          type="range"
+          min={1500}
+          max={6000}
+          step={250}
+          value={capexPerGpu}
+          onChange={(e) => setCapexPerGpu(parseFloat(e.target.value))}
+          className="min-w-[160px] flex-1"
+          style={{ accentColor: 'var(--navy)' }}
+          aria-label="Hardware-Kosten je GPU"
+        />
+        <span className="board-display text-sm" style={{ color: 'var(--navy)', whiteSpace: 'nowrap' }}>
+          {fmtEurFull(capexPerGpu)} / GPU
+        </span>
+      </div>
       <div className="b-card b-card-pad">
         <div className="grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
           {rows.map((r) => (
@@ -390,7 +421,10 @@ function ExecSummary({ kpis }: { kpis: ReturnType<typeof boardKpis> }) {
               <span className="text-sm" style={{ color: r.strong ? 'var(--ink)' : 'var(--slate)', fontWeight: r.strong ? 600 : 400 }}>
                 {r.l}
               </span>
-              <span className="board-display text-base" style={{ color: 'var(--navy)' }}>
+              <span
+                className="board-display text-base"
+                style={{ color: r.v.startsWith('−') ? 'var(--slate)' : 'var(--navy)' }}
+              >
                 {r.v}
               </span>
             </div>
@@ -402,7 +436,7 @@ function ExecSummary({ kpis }: { kpis: ReturnType<typeof boardKpis> }) {
 }
 
 // ── Assumptions (single source of truth, made transparent) ───────────────────
-function Assumptions({ energyPrice, hostShare }: { energyPrice: number; hostShare: number }) {
+function Assumptions({ energyPrice, hostShare, capexPerGpu }: { energyPrice: number; hostShare: number; capexPerGpu: number }) {
   const de = (n: number) => String(n).replace('.', ',');
   const rows: [string, string][] = [
     ['Ertrag je GPU / Monat (Cumulus brutto, konservativ)', ca(fmtEurFull(ASSUMPTIONS.revPerGpuMonth))],
@@ -414,6 +448,8 @@ function Assumptions({ energyPrice, hostShare }: { energyPrice: number; hostShar
     ['Strompreis (anpassbar, Cumulus trägt)', `${energyPrice.toFixed(2).replace('.', ',')} €/kWh`],
     ['Eigenstrom (Solar), Ø', `${ASSUMPTIONS.avgSolarPct}%`],
     ['Nutzbarer Anteil des Netzanschlusses', `${pct(ASSUMPTIONS.computeHeadroomPct)}%`],
+    ['Hardware-Kosten je GPU (anpassbar)', `${fmtEurFull(capexPerGpu)}`],
+    ['Hardware-Laufzeit (Abschreibung)', `${ASSUMPTIONS.hardwareLifeMonths} Monate`],
   ];
   return (
     <section className="reveal mt-6" style={{ '--d': '680ms' } as React.CSSProperties}>

@@ -26,6 +26,10 @@ export const ASSUMPTIONS = {
   // all-electric peak; only the headroom hosts compute). KEY assumption to
   // calibrate with grid knowledge.
   computeHeadroomPct: 0.2,
+  // Cumulus capex: fully-installed cost per GPU (GPU + server/network/cooling/
+  // install share). Cumulus funds the hardware (adjustable).
+  capexPerGpuEur: 3000,
+  hardwareLifeMonths: 36, // amortization period
 };
 const HOURS_PER_MONTH = 730;
 /** Derived: every €/kW figure on the board uses this one rate (≈ €355). */
@@ -147,8 +151,13 @@ export interface BoardKpis {
   grossArrEur: number;
   hostPayoutEur: number; // RE host's share (their revenue)
   hostSharePct: number;
-  cumulusNetEur: number; // gross − host payout − energy
-  cumulusMarginPct: number;
+  contributionEur: number; // gross − host − energy (operating contribution)
+  gpus: number;
+  capexEur: number; // Cumulus hardware investment for the active fleet
+  amortEur: number; // monthly hardware amortization
+  paybackMonths: number; // capex / operating contribution
+  cumulusResultEur: number; // contribution − amort (monthly result after capex)
+  cumulusMarginPct: number; // result / gross
   liveSites: number;
   avgUtilizationPct: number;
   revenuePerKwEur: number; // gross / kW
@@ -166,6 +175,7 @@ export function boardKpis(
   customers: number,
   energyPriceEurKwh: number = ASSUMPTIONS.energyPriceEurKwh,
   hostSharePct: number = ASSUMPTIONS.hostSharePct,
+  capexPerGpuEur: number = ASSUMPTIONS.capexPerGpuEur,
 ): BoardKpis {
   const live = sites.filter((s) => s.online);
   const gross = sites.reduce((a, s) => a + s.monthlyRevenueEur, 0);
@@ -176,11 +186,18 @@ export function boardKpis(
     ? Math.round(live.reduce((a, s) => a + s.utilizationPct, 0) / live.length)
     : 0;
   // Revenue split: the RE host gets a share of gross; energy (only the grid part
-  // is paid) is a Cumulus cost; what's left is Cumulus net.
+  // is paid) is a Cumulus cost → operating contribution.
   const hostPayout = Math.round(gross * hostSharePct);
   const energyCost = Math.round(grid * HOURS_PER_MONTH * energyPriceEurKwh);
-  const cumulusNet = Math.max(0, gross - hostPayout - energyCost);
-  const cumulusMargin = gross > 0 ? Math.round((cumulusNet / gross) * 100) : 0;
+  const contribution = Math.max(0, gross - hostPayout - energyCost);
+  // Capex: Cumulus buys the GPUs. Amortized over the hardware life; payback runs
+  // off the operating contribution.
+  const gpus = Math.round(cap / ASSUMPTIONS.kwPerGpu);
+  const capex = Math.round(gpus * capexPerGpuEur);
+  const amort = Math.round(capex / ASSUMPTIONS.hardwareLifeMonths);
+  const cumulusResult = contribution - amort; // can be negative early
+  const payback = contribution > 0 ? Math.round(capex / contribution) : 0;
+  const cumulusMargin = gross > 0 ? Math.round((cumulusResult / gross) * 100) : 0;
   // 6-month ramp ending at the (derived) current gross.
   const r = rng('gross-trend');
   const trend: number[] = [];
@@ -194,7 +211,12 @@ export function boardKpis(
     grossArrEur: gross * 12,
     hostPayoutEur: hostPayout,
     hostSharePct,
-    cumulusNetEur: cumulusNet,
+    contributionEur: contribution,
+    gpus,
+    capexEur: capex,
+    amortEur: amort,
+    paybackMonths: payback,
+    cumulusResultEur: cumulusResult,
     cumulusMarginPct: cumulusMargin,
     liveSites: live.length,
     avgUtilizationPct: avgUtil,
