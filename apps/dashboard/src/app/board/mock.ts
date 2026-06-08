@@ -11,12 +11,15 @@ import type { NodeSummary } from '@cumulus/shared-types';
 export const ASSUMPTIONS = {
   // Conservative base: Vast/RunPod 4090 ≈ $0.40–0.50/h → ~$207–260/mo at 72%
   // util; after platform fee / FX / idle, a conservative €/GPU/mo is ~220–300.
-  revPerGpuMonth: 260, // est. €/GPU/month (Model A/B blended, conservative) — the anchor
-  kwPerGpu: 0.9, // GPU + cooling/overhead (PUE ≈ 1.3)
+  // NOTE: this is Cumulus's GROSS compute revenue — the real-estate host receives
+  // hostSharePct of it (see boardKpis), not the full amount.
+  revPerGpuMonth: 260, // €/GPU/month (Model A/B blended, conservative) — the anchor
+  kwPerGpu: 0.6, // consumer GPU (4090 ≈ 0.45 kW) + cooling/overhead (PUE ≈ 1.3)
   sqmPerGpu: 0.5, // effective m²/GPU in a building retrofit (rack + aisle + cooling/electrical)
   targetUtilizationPct: 72, // assumed steady-state utilization
-  energyPriceEurKwh: 0.22, // €/kWh
+  energyPriceEurKwh: 0.22, // €/kWh (adjustable)
   avgSolarPct: 18, // avg on-site generation share
+  hostSharePct: 0.3, // RE host's share of gross compute revenue (adjustable)
 };
 const HOURS_PER_MONTH = 730;
 /** Derived: every €/kW figure on the board uses this one rate (≈ €355). */
@@ -134,61 +137,74 @@ export function series(site: Site, kind: SeriesKind, points = 24): number[] {
 
 // ── portfolio aggregates (all derived from the sites) ────────────────────────
 export interface BoardKpis {
-  mrrEur: number;
-  arrEur: number;
+  grossEur: number; // total compute billings (Cumulus top line)
+  grossArrEur: number;
+  hostPayoutEur: number; // RE host's share (their revenue)
+  hostSharePct: number;
+  cumulusNetEur: number; // gross − host payout − energy
+  cumulusMarginPct: number;
   liveSites: number;
   avgUtilizationPct: number;
-  grossMarginPct: number;
-  revenuePerKwEur: number;
+  revenuePerKwEur: number; // gross / kW
   totalCapacityKw: number;
   totalPowerKw: number;
   totalGridKw: number;
   solarSharePct: number;
   energyCostEur: number;
   customers: number;
-  mrrTrend: number[];
+  grossTrend: number[];
 }
 
 export function boardKpis(
   sites: Site[],
   customers: number,
   energyPriceEurKwh: number = ASSUMPTIONS.energyPriceEurKwh,
+  hostSharePct: number = ASSUMPTIONS.hostSharePct,
 ): BoardKpis {
   const live = sites.filter((s) => s.online);
-  const mrr = sites.reduce((a, s) => a + s.monthlyRevenueEur, 0);
+  const gross = sites.reduce((a, s) => a + s.monthlyRevenueEur, 0);
   const cap = sites.reduce((a, s) => a + s.capacityKw, 0);
   const power = +live.reduce((a, s) => a + s.powerDrawKw, 0).toFixed(1);
   const grid = +live.reduce((a, s) => a + s.gridDrawKw, 0).toFixed(1);
   const avgUtil = live.length
     ? Math.round(live.reduce((a, s) => a + s.utilizationPct, 0) / live.length)
     : 0;
-  // Gross margin derives from the (adjustable) energy price: only grid power is paid.
+  // Revenue split: the RE host gets a share of gross; energy (only the grid part
+  // is paid) is a Cumulus cost; what's left is Cumulus net.
+  const hostPayout = Math.round(gross * hostSharePct);
   const energyCost = Math.round(grid * HOURS_PER_MONTH * energyPriceEurKwh);
-  const grossMargin = mrr > 0 ? Math.round((1 - energyCost / mrr) * 100) : 0;
-  // 6-month ramp ending at the (derived) current MRR.
-  const r = rng('mrr-trend');
+  const cumulusNet = Math.max(0, gross - hostPayout - energyCost);
+  const cumulusMargin = gross > 0 ? Math.round((cumulusNet / gross) * 100) : 0;
+  // 6-month ramp ending at the (derived) current gross.
+  const r = rng('gross-trend');
   const trend: number[] = [];
-  let v = mrr * 0.52;
+  let v = gross * 0.52;
   for (let i = 0; i < 6; i++) {
-    v = i === 5 ? mrr : Math.round(v * (1.14 + r() * 0.08));
+    v = i === 5 ? gross : Math.round(v * (1.14 + r() * 0.08));
     trend.push(Math.round(v));
   }
   return {
-    mrrEur: mrr,
-    arrEur: mrr * 12,
+    grossEur: gross,
+    grossArrEur: gross * 12,
+    hostPayoutEur: hostPayout,
+    hostSharePct,
+    cumulusNetEur: cumulusNet,
+    cumulusMarginPct: cumulusMargin,
     liveSites: live.length,
     avgUtilizationPct: avgUtil,
-    grossMarginPct: grossMargin,
-    revenuePerKwEur: cap ? Math.round(mrr / cap) : 0,
+    revenuePerKwEur: cap ? Math.round(gross / cap) : 0,
     totalCapacityKw: cap,
     totalPowerKw: power,
     totalGridKw: grid,
     solarSharePct: power ? Math.round((1 - grid / power) * 100) : 0,
     energyCostEur: energyCost,
     customers,
-    mrrTrend: trend,
+    grossTrend: trend,
   };
 }
+
+/** The RE host's share of a gross revenue figure (for per-site / pipeline). */
+export const hostShareOf = (gross: number, pct: number): number => Math.round(gross * pct);
 
 // ── expansion pipeline (revenue derived, not hardcoded) ──────────────────────
 export type PipelineStage = 'signed' | 'survey' | 'candidate';

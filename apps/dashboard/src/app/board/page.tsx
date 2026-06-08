@@ -11,6 +11,7 @@ import {
   boardKpis,
   estimateProperty,
   projectedMrr,
+  hostShareOf,
   ASSUMPTIONS,
   revPerKwMonth,
   PIPELINE,
@@ -26,6 +27,7 @@ const HAS_MAPBOX = !!process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
 type Role = 'owner' | 'board';
 const ca = (s: string) => `ca. ${s}`;
+const pct = (f: number) => Math.round(f * 100);
 const STAGE_LABEL: Record<string, string> = { signed: 'zugesagt', survey: 'in Prüfung', candidate: 'Kandidat' };
 
 function aggSeries(sites: Site[], kind: SeriesKind): number[] {
@@ -45,11 +47,12 @@ export default function BoardPage() {
   const [selId, setSelId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [energyPrice, setEnergyPrice] = useState(ASSUMPTIONS.energyPriceEurKwh);
+  const [hostShare, setHostShare] = useState(ASSUMPTIONS.hostSharePct);
 
   const sites = useMemo(() => (nodes ?? []).map(siteFromNode), [nodes]);
   const kpis = useMemo(
-    () => boardKpis(sites, customers?.length ?? 0, energyPrice),
-    [sites, customers, energyPrice],
+    () => boardKpis(sites, customers?.length ?? 0, energyPrice, hostShare),
+    [sites, customers, energyPrice, hostShare],
   );
   const selected = sites.find((s) => s.id === selId) ?? null;
 
@@ -93,26 +96,22 @@ export default function BoardPage() {
       <div className="b-rule reveal mb-6" style={{ '--d': '40ms' } as React.CSSProperties} />
 
       {/* ── KPI band ─────────────────────────────────────────────────────── */}
-      <section className="mb-6 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <section className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
         {(role === 'owner'
           ? [
               { l: 'Aktive Standorte', v: String(kpis.liveSites), s: `von ${sites.length} Gebäuden` },
-              { l: 'Monatl. Einnahmen', v: ca(fmtEurFull(kpis.mrrEur)), s: 'aus Ihren Flächen' },
+              { l: 'Ihre Vergütung', v: ca(fmtEurFull(kpis.hostPayoutEur)), s: `${pct(hostShare)}% vom Rechenumsatz / Monat` },
               { l: 'Ø Auslastung', v: `${kpis.avgUtilizationPct}%`, s: 'der Rechenleistung' },
               { l: 'Leistungsaufnahme', v: `${kpis.totalPowerKw} kW`, s: `${kpis.totalGridKw} kW aus dem Netz` },
             ]
           : [
-              { l: 'Monatl. Einnahmen', v: ca(fmtEurFull(kpis.mrrEur)), s: `≈ ${fmtEur(kpis.arrEur)} / Jahr` },
-              { l: 'Bruttomarge', v: `${kpis.grossMarginPct}%`, s: 'nach Energie' },
-              { l: 'Ertrag je kW', v: ca(fmtEurFull(kpis.revenuePerKwEur)), s: 'pro Monat / installiert' },
+              { l: 'Bruttoumsatz', v: ca(fmtEurFull(kpis.grossEur)), s: `≈ ${fmtEur(kpis.grossArrEur)} / Jahr` },
+              { l: 'Cumulus-Netto', v: ca(fmtEurFull(kpis.cumulusNetEur)), s: 'nach Partner & Energie / Monat' },
+              { l: 'Cumulus-Marge', v: `${kpis.cumulusMarginPct}%`, s: 'vom Bruttoumsatz' },
               { l: 'Kunden', v: String(kpis.customers), s: 'zahlende Nutzer' },
             ]
         ).map((k, i) => (
-          <div
-            key={k.l}
-            className="b-card b-card-pad reveal"
-            style={{ '--d': `${80 + i * 60}ms` } as React.CSSProperties}
-          >
+          <div key={k.l} className="b-card b-card-pad reveal" style={{ '--d': `${80 + i * 60}ms` } as React.CSSProperties}>
             <div className="b-kpi-label">{k.l}</div>
             <div className="b-kpi-val mt-2 text-[1.85rem]">{k.v}</div>
             <div className="mt-1 text-xs" style={{ color: 'var(--slate)' }}>
@@ -120,6 +119,31 @@ export default function BoardPage() {
             </div>
           </div>
         ))}
+      </section>
+
+      {/* ── Revenue split lever (visible on both tabs) ───────────────────── */}
+      <section className="reveal mb-6" style={{ '--d': '300ms' } as React.CSSProperties}>
+        <div className="b-card b-card-pad flex flex-wrap items-center gap-x-6 gap-y-2">
+          <span className="b-kpi-label" style={{ whiteSpace: 'nowrap' }}>
+            Umsatzaufteilung
+          </span>
+          <input
+            type="range"
+            min={0.1}
+            max={0.6}
+            step={0.05}
+            value={hostShare}
+            onChange={(e) => setHostShare(parseFloat(e.target.value))}
+            className="min-w-[160px] flex-1"
+            style={{ accentColor: 'var(--gold)' }}
+            aria-label="Umsatzanteil Immobilienpartner"
+          />
+          <span className="text-sm" style={{ whiteSpace: 'nowrap' }}>
+            <span style={{ color: 'var(--gold)', fontWeight: 600 }}>Immobilienpartner {pct(hostShare)}%</span>
+            <span style={{ color: 'var(--slate)' }}> · </span>
+            <span style={{ color: 'var(--navy)', fontWeight: 600 }}>Cumulus {100 - pct(hostShare)}%</span>
+          </span>
+        </div>
       </section>
 
       {/* ── Map + side ───────────────────────────────────────────────────── */}
@@ -175,10 +199,10 @@ export default function BoardPage() {
               </span>
             </div>
 
-            {/* Adjustable electricity price → flows into energy cost + margin */}
+            {/* Adjustable electricity price → flows into energy cost + Cumulus margin */}
             <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--line)' }}>
               <div className="flex items-center justify-between">
-                <span className="b-kpi-label">Strompreis</span>
+                <span className="b-kpi-label">Strompreis (Cumulus trägt Energie)</span>
                 <span className="board-display text-sm" style={{ color: 'var(--navy)' }}>
                   {energyPrice.toFixed(2).replace('.', ',')} €/kWh
                 </span>
@@ -195,8 +219,8 @@ export default function BoardPage() {
                 aria-label="Strompreis in Euro pro kWh"
               />
               <div className="mt-1 text-xs" style={{ color: 'var(--slate)' }}>
-                Energiekosten {ca(fmtEurFull(kpis.energyCostEur))}/Monat · Bruttomarge{' '}
-                <strong style={{ color: 'var(--ink)' }}>{kpis.grossMarginPct}%</strong>
+                Energiekosten {ca(fmtEurFull(kpis.energyCostEur))}/Monat · Cumulus-Marge{' '}
+                <strong style={{ color: 'var(--ink)' }}>{kpis.cumulusMarginPct}%</strong>
               </div>
             </div>
           </div>
@@ -209,11 +233,11 @@ export default function BoardPage() {
               </h3>
               <p className="mt-1 text-sm leading-relaxed" style={{ color: 'var(--slate)' }}>
                 Ungenutzte Flächen — Technikräume, Keller, aber auch leerstehende Ladenlokale und
-                Gewerbeeinheiten — beherbergen Rechenleistung und erwirtschaften{' '}
-                <strong style={{ color: 'var(--ink)' }}>{ca(fmtEurFull(kpis.mrrEur))}/Monat</strong>{' '}
-                an {kpis.liveSites} {kpis.liveSites === 1 ? 'Standort' : 'Standorten'} — rund{' '}
-                <strong style={{ color: 'var(--ink)' }}>{fmtEurFull(kpis.revenuePerKwEur)}</strong> je
-                installiertem kW.
+                Gewerbeeinheiten — beherbergen Rechenleistung. Ihr Anteil:{' '}
+                <strong style={{ color: 'var(--ink)' }}>{ca(fmtEurFull(kpis.hostPayoutEur))}/Monat</strong>{' '}
+                ({pct(hostShare)}% vom Rechenumsatz von {ca(fmtEurFull(kpis.grossEur))}) an{' '}
+                {kpis.liveSites} {kpis.liveSites === 1 ? 'Standort' : 'Standorten'} — passiv; Strom und
+                Betrieb trägt Cumulus.
               </p>
               <button className="b-btn-primary mt-3" onClick={() => setShowAdd(true)}>
                 + Immobilie hinzufügen
@@ -228,10 +252,11 @@ export default function BoardPage() {
                 <span className="text-xs b-delta-up">letzte 6 Monate ↗</span>
               </div>
               <div className="mt-3">
-                <Ramp data={kpis.mrrTrend} />
+                <Ramp data={kpis.grossTrend} />
               </div>
               <div className="mt-2 text-xs" style={{ color: 'var(--slate)' }}>
-                {fmtEur(kpis.mrrTrend[0] ?? 0)} → {ca(fmtEur(kpis.mrrEur))} · ≈ {fmtEur(kpis.arrEur)} / Jahr (Hochrechnung)
+                {fmtEur(kpis.grossTrend[0] ?? 0)} → {ca(fmtEur(kpis.grossEur))} Brutto · Cumulus-Netto{' '}
+                {ca(fmtEur(kpis.cumulusNetEur))}/Monat
               </div>
             </div>
           )}
@@ -240,30 +265,42 @@ export default function BoardPage() {
 
       {/* ── Role section ─────────────────────────────────────────────────── */}
       {role === 'owner' ? (
-        <OwnerSites sites={sites} onSelect={setSelId} onAdd={() => setShowAdd(true)} />
+        <OwnerSites sites={sites} hostShare={hostShare} onSelect={setSelId} onAdd={() => setShowAdd(true)} />
       ) : (
         <ExecSummary kpis={kpis} />
       )}
 
-      <Pipeline role={role} />
+      <Pipeline role={role} hostShare={hostShare} />
 
-      <Assumptions energyPrice={energyPrice} />
+      <Assumptions energyPrice={energyPrice} hostShare={hostShare} />
 
       <footer className="mt-8 text-xs leading-relaxed" style={{ color: 'var(--slate)' }}>
         Standorte und Status sind <strong style={{ color: 'var(--ink)' }}>live</strong> aus der
-        Cumulus-Steuerung. Auslastung, Einnahmen und Energiewerte sind für diese Vorschau{' '}
+        Cumulus-Steuerung. Auslastung, Umsätze und Energiewerte sind für diese Vorschau{' '}
         <strong style={{ color: 'var(--ink)' }}>geschätzt</strong> — in Produktion an echte Messung
         angebunden.
       </footer>
 
-      {selected && <SiteDrawer site={selected} onClose={() => setSelId(null)} />}
-      {showAdd && <PropertyModal onClose={() => setShowAdd(false)} />}
+      {selected && (
+        <SiteDrawer site={selected} hostShare={hostShare} onClose={() => setSelId(null)} />
+      )}
+      {showAdd && <PropertyModal hostShare={hostShare} onClose={() => setShowAdd(false)} />}
     </div>
   );
 }
 
-// ── Owner: portfolio site cards ──────────────────────────────────────────────
-function OwnerSites({ sites, onSelect, onAdd }: { sites: Site[]; onSelect: (id: string) => void; onAdd: () => void }) {
+// ── Owner: portfolio site cards (their share) ────────────────────────────────
+function OwnerSites({
+  sites,
+  hostShare,
+  onSelect,
+  onAdd,
+}: {
+  sites: Site[];
+  hostShare: number;
+  onSelect: (id: string) => void;
+  onAdd: () => void;
+}) {
   return (
     <section className="reveal mb-6" style={{ '--d': '520ms' } as React.CSSProperties}>
       <div className="mb-3 flex items-baseline justify-between">
@@ -298,8 +335,8 @@ function OwnerSites({ sites, onSelect, onAdd }: { sites: Site[]; onSelect: (id: 
             </div>
             <div className="mt-3 flex items-end justify-between">
               <div>
-                <div className="b-kpi-val text-[1.5rem]">{ca(fmtEur(s.monthlyRevenueEur))}</div>
-                <div className="b-kpi-label">pro Monat</div>
+                <div className="b-kpi-val text-[1.5rem]">{ca(fmtEur(hostShareOf(s.monthlyRevenueEur, hostShare)))}</div>
+                <div className="b-kpi-label">Ihr Anteil / Monat</div>
               </div>
               <div className="text-right">
                 <Spark data={series(s, 'revenue')} />
@@ -313,13 +350,15 @@ function OwnerSites({ sites, onSelect, onAdd }: { sites: Site[]; onSelect: (id: 
   );
 }
 
-// ── Exec Summary: economics ──────────────────────────────────────────────────
+// ── Exec Summary: the revenue waterfall ──────────────────────────────────────
 function ExecSummary({ kpis }: { kpis: ReturnType<typeof boardKpis> }) {
-  const rows = [
-    { l: 'Monatliche Einnahmen (ca.)', v: fmtEurFull(kpis.mrrEur) },
-    { l: 'Jahresumsatz (Hochrechnung)', v: fmtEurFull(kpis.arrEur) },
-    { l: 'Bruttomarge (nach Energie)', v: `${kpis.grossMarginPct}%` },
-    { l: 'Ertrag je installiertem kW', v: `${fmtEurFull(kpis.revenuePerKwEur)} / Monat` },
+  const rows: { l: string; v: string; strong?: boolean }[] = [
+    { l: 'Bruttoumsatz (Rechenleistung)', v: fmtEurFull(kpis.grossEur), strong: true },
+    { l: `− Vergütung Immobilienpartner (${pct(kpis.hostSharePct)}%)`, v: '− ' + fmtEurFull(kpis.hostPayoutEur) },
+    { l: '− Energiekosten (Cumulus)', v: '− ' + fmtEurFull(kpis.energyCostEur) },
+    { l: '= Cumulus-Nettoumsatz / Monat', v: fmtEurFull(kpis.cumulusNetEur), strong: true },
+    { l: 'Cumulus-Marge', v: `${kpis.cumulusMarginPct}%` },
+    { l: 'Cumulus-Jahresumsatz (Hochr.)', v: fmtEurFull(kpis.cumulusNetEur * 12) },
     { l: 'Installierte Leistung', v: `${kpis.totalCapacityKw} kW` },
     { l: 'Eigenstrom (Solar)', v: `${kpis.solarSharePct}%` },
     { l: 'Zahlende Kunden', v: String(kpis.customers) },
@@ -327,13 +366,13 @@ function ExecSummary({ kpis }: { kpis: ReturnType<typeof boardKpis> }) {
   return (
     <section className="reveal mb-6" style={{ '--d': '520ms' } as React.CSSProperties}>
       <h2 className="board-display mb-3 text-lg" style={{ color: 'var(--navy)' }}>
-        Wirtschaftlichkeit
+        Wirtschaftlichkeit (Cumulus)
       </h2>
       <div className="b-card b-card-pad">
         <div className="grid grid-cols-1 gap-x-8 gap-y-1 sm:grid-cols-2">
           {rows.map((r) => (
             <div key={r.l} className="flex items-baseline justify-between py-2" style={{ borderTop: '1px solid var(--line)' }}>
-              <span className="text-sm" style={{ color: 'var(--slate)' }}>
+              <span className="text-sm" style={{ color: r.strong ? 'var(--ink)' : 'var(--slate)', fontWeight: r.strong ? 600 : 400 }}>
                 {r.l}
               </span>
               <span className="board-display text-base" style={{ color: 'var(--navy)' }}>
@@ -348,15 +387,16 @@ function ExecSummary({ kpis }: { kpis: ReturnType<typeof boardKpis> }) {
 }
 
 // ── Assumptions (single source of truth, made transparent) ───────────────────
-function Assumptions({ energyPrice }: { energyPrice: number }) {
+function Assumptions({ energyPrice, hostShare }: { energyPrice: number; hostShare: number }) {
   const de = (n: number) => String(n).replace('.', ',');
   const rows: [string, string][] = [
-    ['Ertrag je GPU / Monat (Model A/B, konservativ)', ca(fmtEurFull(ASSUMPTIONS.revPerGpuMonth))],
-    ['Daraus: Ertrag je kW / Monat', ca(fmtEurFull(Math.round(revPerKwMonth)))],
-    ['Leistung je GPU (inkl. Kühlung, PUE ≈ 1,3)', `${de(ASSUMPTIONS.kwPerGpu)} kW`],
+    ['Ertrag je GPU / Monat (Cumulus brutto, konservativ)', ca(fmtEurFull(ASSUMPTIONS.revPerGpuMonth))],
+    ['Daraus: Ertrag je kW / Monat (brutto)', ca(fmtEurFull(Math.round(revPerKwMonth)))],
+    ['Umsatzanteil Immobilienpartner (anpassbar)', `${pct(hostShare)}%`],
+    ['Leistung je GPU (4090-Klasse, inkl. Kühlung)', `${de(ASSUMPTIONS.kwPerGpu)} kW`],
     ['Fläche je GPU (inkl. Gang/Technik)', `${de(ASSUMPTIONS.sqmPerGpu)} m²`],
     ['Ziel-Auslastung', `${ASSUMPTIONS.targetUtilizationPct}%`],
-    ['Strompreis (anpassbar)', `${energyPrice.toFixed(2).replace('.', ',')} €/kWh`],
+    ['Strompreis (anpassbar, Cumulus trägt)', `${energyPrice.toFixed(2).replace('.', ',')} €/kWh`],
     ['Eigenstrom (Solar), Ø', `${ASSUMPTIONS.avgSolarPct}%`],
   ];
   return (
@@ -367,15 +407,12 @@ function Assumptions({ energyPrice }: { energyPrice: number }) {
         </summary>
         <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--slate)' }}>
           Alle Beträge auf dieser Seite leiten sich aus diesen Annahmen ab — Schätzungen für die
-          Vorschau. Standorte und Status sind live.
+          Vorschau. €/GPU ist Cumulus&apos; Bruttoumsatz; der Immobilienpartner erhält seinen Anteil
+          davon. Standorte und Status sind live.
         </p>
         <div className="mt-2 grid grid-cols-1 gap-x-8 sm:grid-cols-2">
           {rows.map(([l, v]) => (
-            <div
-              key={l}
-              className="flex items-baseline justify-between py-1.5"
-              style={{ borderTop: '1px solid var(--line)' }}
-            >
+            <div key={l} className="flex items-baseline justify-between py-1.5" style={{ borderTop: '1px solid var(--line)' }}>
               <span className="text-sm" style={{ color: 'var(--slate)' }}>
                 {l}
               </span>
@@ -391,16 +428,18 @@ function Assumptions({ energyPrice }: { energyPrice: number }) {
 }
 
 // ── Expansion pipeline ───────────────────────────────────────────────────────
-function Pipeline({ role }: { role: Role }) {
-  const total = PIPELINE.reduce((a, p) => a + projectedMrr(p.projectedKw), 0);
+function Pipeline({ role, hostShare }: { role: Role; hostShare: number }) {
+  const isOwner = role === 'owner';
+  const monthly = (kw: number) => (isOwner ? hostShareOf(projectedMrr(kw), hostShare) : projectedMrr(kw));
+  const total = PIPELINE.reduce((a, p) => a + monthly(p.projectedKw), 0);
   return (
     <section className="reveal mb-2" style={{ '--d': '600ms' } as React.CSSProperties}>
       <div className="mb-3 flex items-baseline justify-between">
         <h2 className="board-display text-lg" style={{ color: 'var(--navy)' }}>
-          {role === 'board' ? 'Ausbau-Pipeline' : 'Weitere Flächen anbinden'}
+          {isOwner ? 'Weitere Flächen anbinden' : 'Ausbau-Pipeline'}
         </h2>
         <span className="text-sm" style={{ color: 'var(--gold)' }}>
-          + {ca(fmtEurFull(total))}/Monat möglich
+          + {ca(fmtEurFull(total))}/Monat {isOwner ? 'für Sie möglich' : 'brutto möglich'}
         </span>
       </div>
       <div className="b-card overflow-hidden">
@@ -411,7 +450,7 @@ function Pipeline({ role }: { role: Role }) {
               <th className="text-left">Gebäude</th>
               <th className="text-left">Status</th>
               <th className="text-right">Leistung</th>
-              <th className="text-right">{role === 'board' ? 'Jahresumsatz (Hochr.)' : 'ca. / Monat'}</th>
+              <th className="text-right">{isOwner ? 'Ihr Anteil / Monat' : 'Brutto / Jahr (Hochr.)'}</th>
             </tr>
           </thead>
           <tbody>
@@ -426,9 +465,7 @@ function Pipeline({ role }: { role: Role }) {
                 </td>
                 <td className="text-right tabular-nums">{p.projectedKw} kW</td>
                 <td className="text-right tabular-nums" style={{ color: 'var(--ink)' }}>
-                  {role === 'board'
-                    ? fmtEurFull(projectedMrr(p.projectedKw) * 12)
-                    : ca(fmtEurFull(projectedMrr(p.projectedKw)))}
+                  {isOwner ? ca(fmtEurFull(monthly(p.projectedKw))) : fmtEurFull(projectedMrr(p.projectedKw) * 12)}
                 </td>
               </tr>
             ))}
@@ -440,21 +477,19 @@ function Pipeline({ role }: { role: Role }) {
 }
 
 // ── Property potential calculator ────────────────────────────────────────────
-function PropertyModal({ onClose }: { onClose: () => void }) {
+function PropertyModal({ hostShare, onClose }: { hostShare: number; onClose: () => void }) {
   const [sqm, setSqm] = useState('');
   const [kw, setKw] = useState('');
   const sqmN = parseFloat(sqm) || 0;
   const kwN = parseFloat(kw) || 0;
   const est = useMemo(() => estimateProperty(sqmN, kwN), [sqmN, kwN]);
   const ready = sqmN > 0 && kwN > 0;
+  const yourShare = hostShareOf(est.monthlyRevenueEur, hostShare);
 
   return (
     <div className="b-modal">
       <div className="scrim" onClick={onClose} />
-      <div
-        className="b-card b-card-pad reveal"
-        style={{ position: 'relative', zIndex: 51, width: 'min(520px, 96vw)' }}
-      >
+      <div className="b-card b-card-pad reveal" style={{ position: 'relative', zIndex: 51, width: 'min(520px, 96vw)' }}>
         <h3 className="board-display text-xl" style={{ color: 'var(--navy)' }}>
           Immobilie hinzufügen
         </h3>
@@ -481,8 +516,8 @@ function PropertyModal({ onClose }: { onClose: () => void }) {
             <div className="b-kpi-label">GPUs (geschätzt)</div>
           </div>
           <div className="b-card b-card-pad" style={{ background: '#faf8f3' }}>
-            <div className="b-kpi-val text-[1.7rem]">{ready ? ca(fmtEurFull(est.monthlyRevenueEur)) : '—'}</div>
-            <div className="b-kpi-label">pro Monat (geschätzt)</div>
+            <div className="b-kpi-val text-[1.7rem]">{ready ? ca(fmtEurFull(yourShare)) : '—'}</div>
+            <div className="b-kpi-label">Ihr Anteil / Monat ({pct(hostShare)}%)</div>
           </div>
         </div>
 
@@ -505,9 +540,9 @@ function PropertyModal({ onClose }: { onClose: () => void }) {
               <strong style={{ color: 'var(--navy)' }}>
                 {est.limitedBy === 'power' ? 'Anschlussleistung' : 'Fläche'}
               </strong>{' '}
-              — meist ist die Anschlussleistung der Engpass. Rund {est.capacityKw} kW Rechenlast, ≈{' '}
-              {ca(fmtEurFull(est.monthlyRevenueEur * 12))}/Jahr (bei Ziel-Auslastung). Grobe
-              Planungsschätzung — keine Zusage.
+              — meist ist die Anschlussleistung der Engpass. Rechenumsatz brutto{' '}
+              {ca(fmtEurFull(est.monthlyRevenueEur))}/Monat; Ihr Anteil {pct(hostShare)}% ={' '}
+              {ca(fmtEurFull(yourShare))}/Monat. Grobe Planungsschätzung — keine Zusage.
             </div>
           </div>
         )}
@@ -526,7 +561,7 @@ function PropertyModal({ onClose }: { onClose: () => void }) {
 }
 
 // ── Per-site drawer ──────────────────────────────────────────────────────────
-function SiteDrawer({ site, onClose }: { site: Site; onClose: () => void }) {
+function SiteDrawer({ site, hostShare, onClose }: { site: Site; hostShare: number; onClose: () => void }) {
   return (
     <>
       <div className="scrim" onClick={onClose} />
@@ -549,15 +584,15 @@ function SiteDrawer({ site, onClose }: { site: Site; onClose: () => void }) {
           <div className="mt-5 flex items-center gap-4">
             <Gauge value={site.utilizationPct} label="Auslastung" />
             <div className="grid flex-1 grid-cols-2 gap-3">
-              <Stat label="Einnahmen / Monat" value={ca(fmtEurFull(site.monthlyRevenueEur))} />
+              <Stat label={`Ihr Anteil / Monat (${pct(hostShare)}%)`} value={ca(fmtEurFull(hostShareOf(site.monthlyRevenueEur, hostShare)))} />
+              <Stat label="Rechenumsatz brutto" value={ca(fmtEurFull(site.monthlyRevenueEur))} />
               <Stat label="Leistung" value={`${site.capacityKw} kW`} />
-              <Stat label="Leistungsaufnahme" value={`${site.powerDrawKw} kW`} />
               <Stat label="Verfügbarkeit" value={`${site.uptimePct}%`} />
             </div>
           </div>
 
           <DrawerChart title="Auslastung · 24h" unit="%" data={series(site, 'utilization')} />
-          <DrawerChart title="Einnahmen · 24h (ca.)" data={series(site, 'revenue')} color="var(--gold)" fmt={(v) => `€${v.toFixed(0)}/h`} />
+          <DrawerChart title="Rechenumsatz · 24h (brutto, ca.)" data={series(site, 'revenue')} color="var(--gold)" fmt={(v) => `€${v.toFixed(0)}/h`} />
           <div className="mt-4">
             <div className="b-kpi-label mb-1">Strom vs. Netz · 24h</div>
             <Area data={series(site, 'power')} data2={series(site, 'grid')} height={120} fmt={(v) => `${v.toFixed(1)} kW`} />
@@ -567,7 +602,7 @@ function SiteDrawer({ site, onClose }: { site: Site; onClose: () => void }) {
           </div>
 
           <p className="mt-5 text-xs leading-relaxed" style={{ color: 'var(--slate)' }}>
-            Standort & Status sind live; Auslastung, Einnahmen und Energie sind für diese Vorschau
+            Standort & Status sind live; Auslastung, Umsatz und Energie sind für diese Vorschau
             geschätzt.
           </p>
         </div>
