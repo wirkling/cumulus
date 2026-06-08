@@ -1,5 +1,5 @@
 'use client';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import dynamic from 'next/dynamic';
 import type { NodeSummary, Customer, FleetAllocation } from '@cumulus/shared-types';
 import { usePoll, timeAgo } from '@/lib/ui';
@@ -55,6 +55,18 @@ export default function BoardPage() {
   const [capexPerGpu, setCapexPerGpu] = useState(ASSUMPTIONS.capexPerGpuEur);
   const [added, setAdded] = useState<number[]>([]);
   const [customSites, setCustomSites] = useState<Site[]>([]);
+  // Pin a condensed KPI strip into the sticky masthead once the full KPI band scrolls out.
+  const [kpiPinned, setKpiPinned] = useState(false);
+  const kpiObs = useRef<IntersectionObserver | null>(null);
+  const kpiRef = useCallback((el: HTMLElement | null) => {
+    kpiObs.current?.disconnect();
+    if (!el) return;
+    kpiObs.current = new IntersectionObserver(
+      (entries) => setKpiPinned(!(entries[0]?.isIntersecting ?? true)),
+      { rootMargin: '-76px 0px 0px 0px' },
+    );
+    kpiObs.current.observe(el);
+  }, []);
   const toggleAdd = (id: number) =>
     setAdded((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   const addCustom = (computeKw: number) =>
@@ -94,6 +106,21 @@ export default function BoardPage() {
   const liveLeases = allocation?.leases.length ?? 0;
   const splitLabel = `${pct(hostShare)}% vom Ergebnis`;
 
+  const kpiCards =
+    role === 'owner'
+      ? [
+          { l: 'Vergütung', v: ca(fmtEurFull(kpis.hostPayoutEur)), s: splitLabel },
+          { l: '+ Wärme-Gutschrift', v: ca(fmtEurFull(kpis.heatCreditEur)), s: 'Heizkosten gespart / Mt' },
+          { l: '= Gesamtnutzen', v: ca(fmtEurFull(kpis.hostTotalBenefitEur)), s: 'weitgehend passiv / Mt' },
+          { l: 'Aktive Standorte', v: String(kpis.liveSites), s: `${kpis.totalCapacityKw} kW Rechenlast` },
+        ]
+      : [
+          { l: 'Live-Betrieb', v: `${liveNodes}/${nodes.length} Knoten`, s: `${liveJobs} Anfragen orchestriert` },
+          { l: 'Bruttoumsatz', v: ca(fmtEurFull(kpis.grossEur)), s: `≈ ${fmtEur(kpis.grossArrEur)} / Jahr` },
+          { l: 'Cumulus-Ergebnis', v: ca(fmtEurFull(kpis.cumulusResultEur)), s: 'nach Partner, Energie & Hardware' },
+          { l: 'Amortisation', v: `${kpis.paybackMonths} Mt`, s: `bei ${ca(fmtEurFull(kpis.capexEur))} Capex` },
+        ];
+
   return (
     <div className="mx-auto max-w-[1180px] px-6 py-7">
       {/* ── Masthead (sticky) ────────────────────────────────────────────── */}
@@ -120,24 +147,30 @@ export default function BoardPage() {
             </button>
           </div>
         </div>
+        {/* condensed KPIs — appear in the sticky bar once the full band scrolls past */}
+        <div
+          className="w-full overflow-hidden transition-all duration-300"
+          style={{ maxHeight: kpiPinned ? 40 : 0, opacity: kpiPinned ? 1 : 0 }}
+          aria-hidden={!kpiPinned}
+        >
+          <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 pt-2" style={{ borderTop: '1px solid var(--line)' }}>
+            {kpiCards.map((k) => (
+              <span key={k.l} className="inline-flex items-baseline gap-1.5 whitespace-nowrap">
+                <span className="text-[10px] uppercase tracking-[0.12em]" style={{ color: 'var(--slate)' }}>
+                  {k.l}
+                </span>
+                <span className="board-display text-sm" style={{ color: 'var(--navy)' }}>
+                  {k.v}
+                </span>
+              </span>
+            ))}
+          </div>
+        </div>
       </header>
 
       {/* ── KPI band ─────────────────────────────────────────────────────── */}
-      <section className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-        {(role === 'owner'
-          ? [
-              { l: 'Vergütung', v: ca(fmtEurFull(kpis.hostPayoutEur)), s: splitLabel },
-              { l: '+ Wärme-Gutschrift', v: ca(fmtEurFull(kpis.heatCreditEur)), s: 'Heizkosten gespart / Mt' },
-              { l: '= Gesamtnutzen', v: ca(fmtEurFull(kpis.hostTotalBenefitEur)), s: 'weitgehend passiv / Mt' },
-              { l: 'Aktive Standorte', v: String(kpis.liveSites), s: `${kpis.totalCapacityKw} kW Rechenlast` },
-            ]
-          : [
-              { l: 'Live-Betrieb', v: `${liveNodes}/${nodes.length} Knoten`, s: `${liveJobs} Anfragen orchestriert` },
-              { l: 'Bruttoumsatz', v: ca(fmtEurFull(kpis.grossEur)), s: `≈ ${fmtEur(kpis.grossArrEur)} / Jahr` },
-              { l: 'Cumulus-Ergebnis', v: ca(fmtEurFull(kpis.cumulusResultEur)), s: 'nach Partner, Energie & Hardware' },
-              { l: 'Amortisation', v: `${kpis.paybackMonths} Mt`, s: `bei ${ca(fmtEurFull(kpis.capexEur))} Capex` },
-            ]
-        ).map((k, i) => (
+      <section ref={kpiRef} className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+        {kpiCards.map((k, i) => (
           <div key={k.l} className="b-card b-card-pad reveal" style={{ '--d': `${80 + i * 60}ms` } as React.CSSProperties}>
             <div className="b-kpi-label">{k.l}</div>
             <div className="b-kpi-val mt-2 text-[1.85rem]">{k.v}</div>
@@ -382,7 +415,7 @@ function OwnerSites({
                 <div className="b-kpi-label">Ihr Anteil / Monat</div>
               </div>
               <div className="text-right">
-                <Spark data={series(s, 'revenue')} />
+                <Spark data={series(s, 'utilization')} />
                 <div className="b-kpi-label mt-0.5">{s.utilizationPct}% Auslastung · {s.capacityKw} kW</div>
               </div>
             </div>
