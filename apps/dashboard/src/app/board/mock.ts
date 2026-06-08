@@ -48,11 +48,11 @@ export interface Site {
 }
 
 const SITE_TYPES = [
-  'Technical floor',
-  'Ground-floor unit',
-  'Basement plant room',
-  'Rear commercial unit',
-  'Rooftop machine room',
+  'Technikgeschoss',
+  'Erdgeschoss-Einheit',
+  'Kellerraum',
+  'Gewerbeeinheit',
+  'Dachzentrale',
 ];
 
 /** Derive a plausible micro-DC "site" economic profile from a real node. */
@@ -65,7 +65,7 @@ export function siteFromNode(n: NodeSummary): Site {
   const powerDrawKw = +(capacityKw * (0.32 + (utilizationPct / 100) * 0.62)).toFixed(2);
   const solarPct = r() > 0.45 ? Math.round(r() * 38) : 0;
   const gridDrawKw = +(powerDrawKw * (1 - solarPct / 100)).toFixed(2);
-  const ratePerKwMonth = kind === 'gpu' ? 1150 + r() * 650 : 360 + r() * 240;
+  const ratePerKwMonth = kind === 'gpu' ? 320 + r() * 150 : 110 + r() * 90;
   const monthlyRevenueEur = Math.round(
     capacityKw * ratePerKwMonth * (0.55 + utilizationPct / 230),
   );
@@ -74,7 +74,7 @@ export function siteFromNode(n: NodeSummary): Site {
     id: n.id,
     name: n.name,
     buildingName: `${city} · ${pick(r, SITE_TYPES)}`,
-    siteType: kind === 'gpu' ? 'GPU site' : 'CPU site',
+    siteType: kind === 'gpu' ? 'GPU-Standort' : 'CPU-Standort',
     city,
     lat: n.location?.latitude ?? 51,
     lng: n.location?.longitude ?? 10,
@@ -179,13 +179,45 @@ export interface PipelineSite {
 
 /** Candidate buildings in TAMAX's Berlin-Brandenburg portfolio, framed as growth. */
 export const PIPELINE: PipelineSite[] = [
-  { city: 'Potsdam', buildingName: 'Mixed-use — ground-floor unit', stage: 'signed', projectedKw: 6, projectedMrrEur: 7200, lat: 52.4, lng: 13.06 },
-  { city: 'Brandenburg a.d. Havel', buildingName: 'Quarter — utility floor', stage: 'survey', projectedKw: 9, projectedMrrEur: 10800, lat: 52.41, lng: 12.55 },
-  { city: 'Oranienburg', buildingName: 'Commercial unit — plant room', stage: 'survey', projectedKw: 4, projectedMrrEur: 5400, lat: 52.75, lng: 13.24 },
-  { city: 'Cottbus', buildingName: 'Logistics hub — basement', stage: 'candidate', projectedKw: 5, projectedMrrEur: 6100, lat: 51.76, lng: 14.33 },
-  { city: 'Frankfurt (Oder)', buildingName: 'Office — technical floor', stage: 'candidate', projectedKw: 4, projectedMrrEur: 5000, lat: 52.34, lng: 14.55 },
+  { city: 'Potsdam', buildingName: 'Wohn-/Gewerbe — Erdgeschoss', stage: 'signed', projectedKw: 6, projectedMrrEur: 7200, lat: 52.4, lng: 13.06 },
+  { city: 'Brandenburg a.d. Havel', buildingName: 'Quartier — Technikgeschoss', stage: 'survey', projectedKw: 9, projectedMrrEur: 10800, lat: 52.41, lng: 12.55 },
+  { city: 'Oranienburg', buildingName: 'Gewerbeeinheit — Technikraum', stage: 'survey', projectedKw: 4, projectedMrrEur: 5400, lat: 52.75, lng: 13.24 },
+  { city: 'Cottbus', buildingName: 'Leerstehendes Ladenlokal', stage: 'candidate', projectedKw: 5, projectedMrrEur: 6100, lat: 51.76, lng: 14.33 },
+  { city: 'Frankfurt (Oder)', buildingName: 'Büro — Technikgeschoss', stage: 'candidate', projectedKw: 4, projectedMrrEur: 5000, lat: 52.34, lng: 14.55 },
 ];
 
-export const fmtEur = (v: number): string =>
-  v >= 1000 ? `€${(v / 1000).toFixed(v >= 10000 ? 0 : 1)}k` : `€${Math.round(v)}`;
-export const fmtEurFull = (v: number): string => '€' + Math.round(v).toLocaleString('en-US');
+// German number formatting (de-DE): 12.345 thousands, comma decimals.
+export const fmtEur = (v: number): string => {
+  if (v >= 1000) {
+    const k = v / 1000;
+    return '€' + (k >= 10 ? String(Math.round(k)) : k.toFixed(1).replace('.', ',')) + 'k';
+  }
+  return '€' + Math.round(v);
+};
+export const fmtEurFull = (v: number): string => '€' + Math.round(v).toLocaleString('de-DE');
+export const fmtNum = (v: number): string => Math.round(v).toLocaleString('de-DE');
+
+// ── property potential estimator (the "Immobilie hinzufügen" calculator) ─────
+// Planning heuristics for the preview: GPUs are limited by BOTH power and space.
+const KW_PER_GPU = 0.9; // GPU + cooling/overhead (PUE ≈ 1.3)
+const SQM_PER_GPU = 0.35; // incl. rack footprint + aisle share
+const REV_PER_GPU_MONTH = 320; // est. €/GPU/month (Model A/B blended)
+
+export interface PropertyEstimate {
+  gpus: number;
+  limitedBy: 'power' | 'space';
+  monthlyRevenueEur: number;
+  capacityKw: number;
+}
+
+export function estimateProperty(sqm: number, mw: number): PropertyEstimate {
+  const byPower = Math.floor(((mw || 0) * 1000) / KW_PER_GPU);
+  const bySpace = Math.floor((sqm || 0) / SQM_PER_GPU);
+  const gpus = Math.max(0, Math.min(byPower, bySpace));
+  return {
+    gpus,
+    limitedBy: byPower <= bySpace ? 'power' : 'space',
+    monthlyRevenueEur: gpus * REV_PER_GPU_MONTH,
+    capacityKw: +(gpus * KW_PER_GPU).toFixed(1),
+  };
+}

@@ -92,6 +92,23 @@
 .drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(440px, 92vw); background: var(--paper); border-left: 1px solid var(--line); box-shadow: -30px 0 60px -30px rgba(0, 16, 44, 0.5); z-index: 41; overflow-y: auto; animation: slideIn 0.32s cubic-bezier(0.22, 0.61, 0.36, 1); }
 @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
 
+/* ── mapbox markers ───────────────────────────────────────────────────────── */
+.mb-map { border-radius: 14px; overflow: hidden; border: 1px solid var(--line); }
+.mb-pin { width: 16px; height: 16px; border-radius: 50%; cursor: pointer; box-sizing: border-box; }
+.mb-pin-live { background: var(--navy); border: 2px solid #fff; box-shadow: 0 0 0 0 rgba(169, 132, 63, 0.55); animation: blip 2.2s ease-out infinite; }
+.mb-pin-off { background: var(--slate); border: 2px solid #fff; }
+.mb-pin-candidate { width: 12px; height: 12px; background: var(--paper); border: 1.5px dashed var(--navy); opacity: 0.85; }
+.mb-pin-sel { outline: 3px solid var(--gold); outline-offset: 2px; }
+.board .mapboxgl-ctrl-logo, .board .mapboxgl-ctrl-attrib { opacity: 0.65; }
+
+/* ── modal (property calculator) ──────────────────────────────────────────── */
+.b-modal { position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 1rem; }
+.b-input { width: 100%; border: 1px solid var(--line); border-radius: 9px; padding: 0.6rem 0.7rem; font-size: 0.95rem; background: #fff; color: var(--ink); }
+.b-input:focus { outline: 2px solid var(--navy); outline-offset: 0; }
+.b-btn-primary { background: var(--navy); color: #f3eee2; border: 0; border-radius: 999px; padding: 0.5rem 1.15rem; font-weight: 600; font-size: 0.85rem; cursor: pointer; }
+.b-btn-primary:disabled { opacity: 0.45; cursor: default; }
+.b-btn-ghost { background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 0.5rem 1.15rem; font-weight: 600; font-size: 0.85rem; cursor: pointer; color: var(--navy); }
+
 .b-table th { color: var(--slate); font-weight: 600; }
 .b-table td, .b-table th { padding: 0.5rem 0.6rem; }
 .b-table tbody tr { border-top: 1px solid var(--line); }

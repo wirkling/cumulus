@@ -232,7 +232,7 @@ export default function TestCenterPage() {
 
       {noCustomers ? (
         <div className="card text-sm">
-          No test users yet. <Link className="underline" href="/customers">Create one in Customers →</Link>
+          No test users yet. <Link className="underline" href="/ops/customers">Create one in Customers →</Link>
         </div>
       ) : (
         <div className="card space-y-4">

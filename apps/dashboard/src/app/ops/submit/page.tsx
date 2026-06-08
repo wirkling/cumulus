@@ -43,7 +43,7 @@ export default function SubmitPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? `HTTP ${res.status}`);
-      router.push(`/requests/${json.id}`);
+      router.push(`/ops/requests/${json.id}`);
     } catch (e) {
       setErr(String(e));
       setBusy(false);

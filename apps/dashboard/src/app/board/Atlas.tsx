@@ -118,9 +118,9 @@ export function Atlas({
       {/* legend */}
       <g transform={`translate(${PAD}, ${PAD - 22})`}>
         <circle cx={5} cy={0} r={5} fill="var(--navy)" />
-        <text x={15} y={3} fontSize={10} fill="var(--ink)">Live site</text>
-        <circle cx={92} cy={0} r={4.5} fill="var(--paper)" stroke="var(--navy)" strokeWidth={1.5} strokeDasharray="2 2" />
-        <text x={102} y={3} fontSize={10} fill="var(--slate)">Pipeline (Berlin-Brandenburg)</text>
+        <text x={15} y={3} fontSize={10} fill="var(--ink)">Aktiver Standort</text>
+        <circle cx={118} cy={0} r={4.5} fill="var(--paper)" stroke="var(--navy)" strokeWidth={1.5} strokeDasharray="2 2" />
+        <text x={128} y={3} fontSize={10} fill="var(--slate)">Pipeline (Berlin-Brandenburg)</text>
       </g>
     </svg>
   );

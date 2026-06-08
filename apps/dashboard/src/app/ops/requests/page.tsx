@@ -34,7 +34,7 @@ export default function RequestsPage() {
                 <td className="text-muted">{r.completionPolicy}</td>
                 <td className="text-muted">{timeAgo(r.createdAt)}</td>
                 <td>
-                  <Link className="btn" href={`/requests/${r.id}`}>
+                  <Link className="btn" href={`/ops/requests/${r.id}`}>
                     view
                   </Link>
                 </td>
@@ -43,7 +43,7 @@ export default function RequestsPage() {
             {data && data.length === 0 && (
               <tr>
                 <td colSpan={7} className="py-8 text-center text-muted">
-                  No requests yet. <Link className="underline" href="/submit">Submit one →</Link>
+                  No requests yet. <Link className="underline" href="/ops/submit">Submit one →</Link>
                 </td>
               </tr>
             )}
