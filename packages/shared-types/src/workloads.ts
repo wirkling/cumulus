@@ -6,7 +6,19 @@
  * through the scorer (spec §4.5). Batch workloads set w_distance ≈ 0; a future
  * latency-sensitive class would set it high.
  */
-import type { WorkloadType, MergeStrategy } from './domain.js';
+import type { WorkloadType, MergeStrategy, Precision } from './domain.js';
+
+/**
+ * Bytes per parameter by precision — config-as-data (the precision matrix the
+ * doc makes first-class). weights GB ≈ params(B) × bytes/param. Consumed by the
+ * pure sizing helpers in @cumulus/orchestration; the VRAM-fit placement filter
+ * that uses it is Sprint 2.
+ */
+export const BYTES_PER_PARAM: Record<Precision, number> = {
+  fp16: 2,
+  int8: 1,
+  int4: 0.5,
+};
 
 export interface PlacementWeights {
   /** Locality: prefer nodes near the request origin. Soft, never a hard filter. */
@@ -73,7 +85,8 @@ export const WORKLOADS: Record<WorkloadType, WorkloadDefinition> = {
   ocr: {
     type: 'ocr',
     requiredCapabilities: { executor: 'ocr' },
-    defaultMergeStrategy: 'collect',
+    // Single-worker inference: one request = one worker, result returned verbatim.
+    defaultMergeStrategy: 'single',
     fanOutable: false,
     placementWeights: { distance: 0.1, queue: 0.5, benchmark: 0.3, cost: 0.1 },
     defaultTimeoutSeconds: 120,
@@ -81,7 +94,8 @@ export const WORKLOADS: Record<WorkloadType, WorkloadDefinition> = {
   transcription: {
     type: 'transcription',
     requiredCapabilities: { executor: 'transcription' },
-    defaultMergeStrategy: 'collect',
+    // Single-worker inference: one request = one worker, result returned verbatim.
+    defaultMergeStrategy: 'single',
     fanOutable: false,
     // Heavy on CPU — favour the best-benchmarking node.
     placementWeights: { distance: 0.05, queue: 0.35, benchmark: 0.5, cost: 0.1 },
@@ -90,7 +104,8 @@ export const WORKLOADS: Record<WorkloadType, WorkloadDefinition> = {
   llm_generate: {
     type: 'llm_generate',
     requiredCapabilities: { executor: 'llm' },
-    defaultMergeStrategy: 'collect',
+    // Single-worker inference: one request = one worker, result returned verbatim.
+    defaultMergeStrategy: 'single',
     fanOutable: false,
     placementWeights: { distance: 0.05, queue: 0.35, benchmark: 0.5, cost: 0.1 },
     defaultTimeoutSeconds: 300,
@@ -100,7 +115,8 @@ export const WORKLOADS: Record<WorkloadType, WorkloadDefinition> = {
   gpu_llm: {
     type: 'gpu_llm',
     requiredCapabilities: { executor: 'gpu' },
-    defaultMergeStrategy: 'collect',
+    // Single-worker inference: one request = one worker, result returned verbatim.
+    defaultMergeStrategy: 'single',
     fanOutable: false,
     placementWeights: { distance: 0.0, queue: 0.3, benchmark: 0.6, cost: 0.1 },
     defaultTimeoutSeconds: 300,

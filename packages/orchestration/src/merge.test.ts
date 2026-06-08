@@ -67,6 +67,7 @@ function req(over: Partial<Request>): Request {
   return {
     id: 'r1',
     workloadType: 'split_map_merge',
+    serviceModel: 'hosted',
     status: 'queued',
     fanOut: 3,
     mergeStrategy: 'ordered_array',

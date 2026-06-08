@@ -67,9 +67,14 @@ export function decomposeRequest(req: Request): ShardSpec[] {
   }
 }
 
-/** Required capabilities for a workload (hard-filter input to placement). */
+/**
+ * Required capabilities for a workload (hard-filter input to placement). The
+ * workload's defaults (e.g. `{ executor: 'gpu' }`) merged with any per-request
+ * extras such as `{ tpGroupMinCards: 2 }` for a model that needs a grouped node.
+ */
 export function requiredCapabilitiesFor(
   workloadType: WorkloadType,
+  extra: Record<string, unknown> = {},
 ): Record<string, unknown> {
-  return { ...WORKLOADS[workloadType].requiredCapabilities };
+  return { ...WORKLOADS[workloadType].requiredCapabilities, ...extra };
 }

@@ -27,6 +27,7 @@ const capabilitySchema = z
     gpuCount: z.number().optional(),
     gpuModels: z.array(z.string()).optional(),
     gpuVramGb: z.array(z.number()).optional(),
+    tpGroups: z.array(z.array(z.number())).optional(),
     os: z.string().optional(),
     architecture: z.enum(['x64', 'arm64']).optional(),
     dockerAvailable: z.boolean().optional(),

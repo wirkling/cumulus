@@ -9,6 +9,7 @@ import { nodes, orchestration } from '@cumulus/db';
 import { config } from '../config.js';
 import { dispatchPlaceableJobs } from './placement.js';
 import { finalizeRequest } from './completion.js';
+import { expireDueLeases } from './leases.js';
 
 /** Detect nodes that stopped heart-beating; fail their in-flight attempts. */
 async function offlineSweep(app: FastifyInstance): Promise<void> {
@@ -56,6 +57,13 @@ async function dispatchSweep(app: FastifyInstance): Promise<void> {
   await dispatchPlaceableJobs(app.log);
 }
 
+/** Expire Model-A leases past their deadline and meter their device-time, so a
+ * lease that runs to natural expiry records usage even if no one releases it
+ * and frees the node for hosted work. Idempotent. */
+async function leaseSweep(app: FastifyInstance): Promise<void> {
+  await expireDueLeases(app.log);
+}
+
 const guard =
   (app: FastifyInstance, name: string, fn: (a: FastifyInstance) => Promise<void>) =>
   () =>
@@ -67,6 +75,7 @@ export function startSweeps(app: FastifyInstance): () => void {
     setInterval(guard(app, 'offline', offlineSweep), config.offlineSweepSeconds * 1000),
     setInterval(guard(app, 'timeout', timeoutSweep), config.timeoutSweepSeconds * 1000),
     setInterval(guard(app, 'dispatch', dispatchSweep), config.dispatchSweepSeconds * 1000),
+    setInterval(guard(app, 'lease', leaseSweep), config.timeoutSweepSeconds * 1000),
   ];
   for (const t of timers) t.unref?.();
   app.log.info(

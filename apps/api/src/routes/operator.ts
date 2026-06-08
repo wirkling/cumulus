@@ -3,13 +3,17 @@
  * is recorded in the operator_actions audit log (spec §14.1). */
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { nodes, orchestration, events, customers, qa } from '@cumulus/db';
+import { nodes, orchestration, events, customers, leases, qa } from '@cumulus/db';
 import type {
   Node,
   NodeStatus,
   NodeSummary,
   NodeDetail,
   CustomerWithKey,
+  LeaseView,
+  FleetAllocation,
+  AllocationNode,
+  ActiveJobAllocation,
   QaRunDetail,
 } from '@cumulus/shared-types';
 import { QA_SUITE } from '@cumulus/shared-types';
@@ -17,6 +21,7 @@ import { authenticateOperator, mintCustomerKey } from '../auth.js';
 import { parseOr400 } from '../validate.js';
 import { enqueueDirective } from '../services/directives.js';
 import { dispatchPlaceableJobs } from '../services/placement.js';
+import { createLease, releaseLease, expireDueLeases } from '../services/leases.js';
 import { launchQaRun } from '../services/qa-runner.js';
 
 const ACTOR = 'operator'; // single operator identity in v1
@@ -167,6 +172,114 @@ export function registerOperatorRoutes(app: FastifyInstance): void {
 
   app.get('/api/operator/customers', async (_req, reply) => {
     return reply.send(await customers.listCustomers());
+  });
+
+  // ── Device leases (Model A — rent a GPU) ─────────────────────────────────────
+  const createLeaseSchema = z.object({
+    nodeId: z.string().uuid(),
+    customerId: z.string().uuid(),
+    durationSeconds: z.number().int().min(1).max(60 * 60 * 24 * 90), // up to 90 days
+    gpuIndices: z.array(z.number().int().min(0)).optional(),
+    metadata: z.record(z.unknown()).optional(),
+  });
+
+  app.post('/api/operator/leases', async (req, reply) => {
+    const body = parseOr400(createLeaseSchema, req.body, reply);
+    if (!body) return;
+    const result = await createLease(body, req.log);
+    if (!result.ok) {
+      return reply.code(result.code).send({ error: result.error, message: result.message });
+    }
+    await events.insertOperatorAction({
+      actionType: 'create_lease',
+      targetType: 'lease',
+      targetId: result.lease.id,
+      actor: ACTOR,
+      metadata: { nodeId: result.lease.nodeId, customerId: result.lease.customerId },
+    });
+    return reply.code(201).send(result.lease);
+  });
+
+  app.get('/api/operator/leases', async (req, reply) => {
+    // Refresh stale statuses (and meter them) so the view shows expired as such.
+    await expireDueLeases(req.log);
+    const [list, nodeList, customerList] = await Promise.all([
+      leases.listLeases(),
+      nodes.listNodes(),
+      customers.listCustomers(),
+    ]);
+    const nodeNames = new Map(nodeList.map((n) => [n.id, n.name]));
+    const customerNames = new Map(customerList.map((c) => [c.id, c.name]));
+    const views: LeaseView[] = list.map((l) => ({
+      ...l,
+      nodeName: nodeNames.get(l.nodeId),
+      customerName: customerNames.get(l.customerId),
+    }));
+    return reply.send(views);
+  });
+
+  app.post<{ Params: { id: string } }>('/api/operator/leases/:id/release', async (req, reply) => {
+    const released = await releaseLease(req.params.id, req.log);
+    if (!released) {
+      return reply.code(404).send({ error: 'not_found', message: 'active lease not found' });
+    }
+    await events.insertOperatorAction({
+      actionType: 'release_lease',
+      targetType: 'lease',
+      targetId: released.id,
+      actor: ACTOR,
+    });
+    return reply.send(released);
+  });
+
+  // ── Fleet allocation (who is on which hardware for which model) ───────────────
+  app.get('/api/operator/allocation', async (req, reply) => {
+    // Free + meter any naturally-expired leases first so the snapshot is honest.
+    await expireDueLeases(req.log);
+    const [nodeList, locations, customerList, activeLeases, allocations] = await Promise.all([
+      nodes.listNodes(),
+      nodes.listLocations(),
+      customers.listCustomers(),
+      leases.listActiveLeases(),
+      orchestration.listActiveAllocations(),
+    ]);
+    const caps = await Promise.all(nodeList.map((n) => nodes.getCapabilities(n.id)));
+
+    const locById = new Map(locations.map((l) => [l.id, l]));
+    const nodeNames = new Map(nodeList.map((n) => [n.id, n.name]));
+    const customerNames = new Map(customerList.map((c) => [c.id, c.name]));
+
+    const allocNodes: AllocationNode[] = nodeList.map((n, i) => {
+      const cap = caps[i];
+      const loc = n.locationId ? locById.get(n.locationId) : undefined;
+      return {
+        id: n.id,
+        name: n.name,
+        status: n.status,
+        city: loc?.city,
+        cpuCores: cap?.cpuCores,
+        ramGb: cap?.ramGb,
+        gpuCount: cap?.gpuCount,
+        gpuModels: cap?.gpuModels,
+        gpuVramGb: cap?.gpuVramGb,
+        tpGroups: cap?.tpGroups,
+        executors: cap?.executors,
+      };
+    });
+
+    const leaseViews: LeaseView[] = activeLeases.map((l) => ({
+      ...l,
+      nodeName: nodeNames.get(l.nodeId),
+      customerName: customerNames.get(l.customerId),
+    }));
+
+    const jobViews: ActiveJobAllocation[] = allocations.map((a) => ({
+      ...a,
+      customerName: a.customerId ? customerNames.get(a.customerId) : undefined,
+    }));
+
+    const payload: FleetAllocation = { nodes: allocNodes, leases: leaseViews, jobs: jobViews };
+    return reply.send(payload);
   });
 
   // ── QA / Test Center ─────────────────────────────────────────────────────────

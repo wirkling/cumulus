@@ -10,6 +10,10 @@ import type {
   CompletionPolicy,
   OnPartial,
   Priority,
+  ServiceModel,
+  WorkloadType,
+  JobAttemptStatus,
+  ActiveJobAllocation,
 } from '@cumulus/shared-types';
 import type { ShardSpec } from '@cumulus/orchestration';
 import { getSql, toJson } from '../client.js';
@@ -25,6 +29,7 @@ export async function createRequest(
     completionPolicy: CompletionPolicy;
     onPartial: OnPartial;
     priority: Priority;
+    serviceModel?: ServiceModel;
     quorum?: number;
     originLocation?: { lat: number; lng: number; label?: string };
     customerId?: string;
@@ -34,11 +39,11 @@ export async function createRequest(
   const sql = getSql();
   const rows = await sql`
     insert into requests
-      (workload_type, fan_out, origin_lat, origin_lng, origin_label, merge_strategy,
+      (workload_type, service_model, fan_out, origin_lat, origin_lng, origin_label, merge_strategy,
        completion_policy, quorum, on_partial, timeout_seconds, input, customer_id, priority,
        status, deadline_at, qa_run_id)
     values
-      (${body.workloadType}, ${body.fanOut}, ${body.originLocation?.lat ?? null},
+      (${body.workloadType}, ${body.serviceModel ?? 'hosted'}, ${body.fanOut}, ${body.originLocation?.lat ?? null},
        ${body.originLocation?.lng ?? null}, ${body.originLocation?.label ?? null},
        ${body.mergeStrategy}, ${body.completionPolicy}, ${body.quorum ?? null},
        ${body.onPartial}, ${body.timeoutSeconds}, ${sql.json(toJson(body.input))},
@@ -349,4 +354,40 @@ export async function queueLengthForNode(nodeId: string): Promise<number> {
     select count(*)::int as n from job_attempts
     where node_id = ${nodeId} and status in ('assigned','started')`;
   return rows[0]?.n ?? 0;
+}
+
+/**
+ * Live hosted-inference (Model B) attempts currently occupying nodes, joined to
+ * their job + request so the allocation view can show customer + model per node.
+ * The serving model rides the request input under the reserved `__serving` key
+ * (set by submit); absent when the caller gave no model hint. customerName is
+ * resolved by the caller (customer_id may be the literal 'internal').
+ */
+export async function listActiveAllocations(): Promise<ActiveJobAllocation[]> {
+  const sql = getSql();
+  const rows = await sql`
+    select a.id as attempt_id, a.node_id, a.status, a.started_at,
+           j.id as job_id, j.workload_type, j.request_id,
+           r.customer_id, r.input
+    from job_attempts a
+    join jobs j on j.id = a.job_id
+    join requests r on r.id = j.request_id
+    where a.status in ('assigned','started')
+    order by a.created_at desc`;
+  return rows.map((r): ActiveJobAllocation => {
+    const input = (r.input as Record<string, unknown>) ?? {};
+    const serving = input.__serving as Record<string, unknown> | undefined;
+    const model = serving && typeof serving.model === 'string' ? serving.model : undefined;
+    return {
+      attemptId: String(r.attempt_id),
+      jobId: String(r.job_id),
+      requestId: String(r.request_id),
+      nodeId: String(r.node_id),
+      customerId: r.customer_id != null ? String(r.customer_id) : undefined,
+      workloadType: r.workload_type as WorkloadType,
+      model,
+      status: r.status as JobAttemptStatus,
+      startedAt: r.started_at instanceof Date ? r.started_at.toISOString() : undefined,
+    };
+  });
 }

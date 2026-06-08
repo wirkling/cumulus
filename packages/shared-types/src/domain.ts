@@ -118,6 +118,25 @@ export type CompletionPolicy =
 
 export type OnPartial = 'return_partial' | 'fail';
 
+// ─── Service model + GPU sizing (inference serving) ──────────────────────────
+
+/**
+ * The two products Cumulus serves over ONE control plane (the doc's Model A/B):
+ *  - `hosted` — we host open-weight models and sell inference (Model B). Runs
+ *               through the Request → Job pipeline.
+ *  - `rent`   — the customer rents whole GPUs/cards and brings their own model
+ *               (Model A). Realised as a {@link DeviceLease}, NOT a Job: a lease
+ *               is a stateful, time-bounded, customer-exclusive hold over
+ *               physical cards, not a decompose-and-merge request.
+ */
+export type ServiceModel = 'rent' | 'hosted';
+
+/** Weight precision — first-class because it determines which node can serve a
+ * model: weights GB ≈ params(B) × bytes/param (see BYTES_PER_PARAM). */
+export type Precision = 'fp16' | 'int8' | 'int4';
+
+export type DeviceLeaseStatus = 'active' | 'released' | 'expired';
+
 // ─── Geo ─────────────────────────────────────────────────────────────────────
 
 export interface GeoPoint {
@@ -167,6 +186,14 @@ export interface NodeCapability {
   gpuCount?: number;
   gpuModels?: string[];
   gpuVramGb?: number[];
+  /**
+   * Tensor-parallel-capable GPU groups: each inner array is the set of card
+   * indices that are NVLink-connected and therefore usable as ONE logical
+   * worker (e.g. `[[0,1,2,3]]` = a 4-card TP group). Cards not listed here are
+   * independent single-card workers. Detected via `nvidia-smi topo -m`; absent
+   * off-NVIDIA. This is how placement knows a node can host an N-card model —
+   * the doc's hard rule that a sharded model stays inside ONE box. */
+  tpGroups?: number[][];
   os?: string;
   architecture?: Architecture;
   dockerAvailable?: boolean;
@@ -221,6 +248,9 @@ export interface NodeBenchmark {
 export interface Request {
   id: string;
   workloadType: WorkloadType;
+  /** Which product this request belongs to. The Request → Job pipeline only
+   * serves `hosted` (Model B) work; `rent` (Model A) is a {@link DeviceLease}. */
+  serviceModel: ServiceModel;
   status: RequestStatus;
   /** How many child jobs to split into. */
   fanOut: number;
@@ -282,6 +312,29 @@ export interface JobAttempt {
   createdAt: string;
 }
 
+/**
+ * Model A — a customer's exclusive, time-bounded hold over specific GPU cards on
+ * one node. Lives ALONGSIDE Request/Job; it is NOT a job. A lease has a
+ * duration, exclusivity, and teardown that the job lifecycle does not model, so
+ * forcing it into Job/JobAttempt would corrupt both. Placement treats a node
+ * with an active lease as unavailable to `hosted` (Model B) work. Execution of
+ * the customer's own model/container is deferred (Phase 2); Sprint 1 builds the
+ * lease abstraction + placement exclusion + raw metering (usage_events).
+ */
+export interface DeviceLease {
+  id: string;
+  nodeId: string;
+  customerId: string;
+  /** Which cards are held. Empty = whole node (Sprint 1 leases the whole box). */
+  gpuIndices: number[];
+  status: DeviceLeaseStatus;
+  startedAt: string;
+  expiresAt: string;
+  releasedAt?: string;
+  metadata?: Record<string, unknown>;
+  createdAt: string;
+}
+
 export type UsageEventType =
   | 'cpu_seconds'
   | 'gpu_seconds'
@@ -310,12 +363,14 @@ export type OperatorActionType =
   | 'enable_node'
   | 'trigger_benchmark'
   | 'retry_job'
-  | 'cancel_request';
+  | 'cancel_request'
+  | 'create_lease'
+  | 'release_lease';
 
 export interface OperatorAction {
   id: string;
   actionType: OperatorActionType;
-  targetType: 'node' | 'job' | 'request';
+  targetType: 'node' | 'job' | 'request' | 'lease';
   targetId: string;
   actor: string;
   metadata?: Record<string, unknown>;

@@ -5,11 +5,13 @@
 import type {
   Architecture,
   CompletionPolicy,
+  DeviceLease,
   ExecutorKind,
   GeoPoint,
   HeartbeatMetrics,
   Job,
   JobAttempt,
+  JobAttemptStatus,
   MergeStrategy,
   Node,
   NodeBenchmark,
@@ -17,9 +19,11 @@ import type {
   NodeLocation,
   NodeStatus,
   OnPartial,
+  Precision,
   Priority,
   Request as JobRequest,
   ResourceUsage,
+  ServiceModel,
   WorkloadType,
 } from './domain.js';
 
@@ -34,6 +38,8 @@ export interface CapabilityReport {
   gpuCount?: number;
   gpuModels?: string[];
   gpuVramGb?: number[];
+  /** NVLink-connected card-index sets usable as one tensor-parallel worker. */
+  tpGroups?: number[][];
   os?: string;
   architecture?: Architecture;
   dockerAvailable?: boolean;
@@ -138,6 +144,9 @@ export interface BenchmarkSubmitRequest {
 
 export interface SubmitRequestBody {
   workloadType: WorkloadType;
+  /** Always `hosted` here — Model B inference. `rent` (Model A) is provisioned
+   * via the leases endpoint, not the request pipeline. Defaults to `hosted`. */
+  serviceModel?: ServiceModel;
   fanOut: number;
   originLocation?: GeoPoint;
   mergeStrategy?: MergeStrategy;
@@ -146,6 +155,15 @@ export interface SubmitRequestBody {
   onPartial?: OnPartial;
   timeoutSeconds?: number;
   priority?: Priority;
+  /** Serving hints for hosted inference. The placeable unit is (model, precision)
+   * — see the doc's size-aware-placement requirement. The hard VRAM-fit filter
+   * is Sprint 2; Sprint 1 records these + can require a TP group. */
+  model?: string;
+  precision?: Precision;
+  contextLen?: number;
+  maxTokens?: number;
+  /** Require a node with an NVLink TP group of at least N cards (big models). */
+  tpGroupMinCards?: number;
   input: Record<string, unknown>;
 }
 
@@ -179,6 +197,68 @@ export interface NodeDetail extends NodeSummary {
 export interface NodeListFilter {
   status?: NodeStatus;
   locationId?: string;
+}
+
+// ─── Device leases (Model A — rent a GPU) ────────────────────────────────────
+
+export interface CreateLeaseRequest {
+  nodeId: string;
+  customerId: string;
+  /** Lease length in seconds; the lease expires (and frees the node) after it. */
+  durationSeconds: number;
+  /** Cards to hold. Omit / empty = whole node (Sprint 1 leases the whole box). */
+  gpuIndices?: number[];
+  metadata?: Record<string, unknown>;
+}
+
+/** A lease enriched with display names for the operator view. */
+export interface LeaseView extends DeviceLease {
+  nodeName?: string;
+  customerName?: string;
+}
+
+// ─── Fleet allocation (ops view: who is on which hardware for which model) ────
+
+/** A node's hardware/capability summary for the allocation view. */
+export interface AllocationNode {
+  id: string;
+  name: string;
+  status: NodeStatus;
+  city?: string;
+  cpuCores?: number;
+  ramGb?: number;
+  gpuCount?: number;
+  gpuModels?: string[];
+  gpuVramGb?: number[];
+  tpGroups?: number[][];
+  executors?: ExecutorKind[];
+}
+
+/** A live hosted-inference (Model B) job currently occupying a node. */
+export interface ActiveJobAllocation {
+  attemptId: string;
+  jobId: string;
+  requestId: string;
+  nodeId: string;
+  customerId?: string;
+  customerName?: string;
+  workloadType: WorkloadType;
+  /** Serving model, when the caller supplied one (else show the workload). */
+  model?: string;
+  status: JobAttemptStatus;
+  startedAt?: string;
+}
+
+/**
+ * The fleet allocation snapshot — the building blocks the dashboard pivots
+ * either by node ("what is my fleet doing") or by customer ("what is each
+ * customer consuming"). `leases` are active Model-A holds; `jobs` are live
+ * Model-B inference attempts.
+ */
+export interface FleetAllocation {
+  nodes: AllocationNode[];
+  leases: LeaseView[];
+  jobs: ActiveJobAllocation[];
 }
 
 export interface ErrorResponse {

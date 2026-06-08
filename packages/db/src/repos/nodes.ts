@@ -169,12 +169,13 @@ export async function upsertCapabilities(
   await sql`
     insert into node_capabilities
       (node_id, cpu_model, cpu_cores, cpu_threads, ram_gb, disk_gb, gpu_count,
-       gpu_models, gpu_vram_gb, os, architecture, docker_available, cuda_available,
+       gpu_models, gpu_vram_gb, tp_groups, os, architecture, docker_available, cuda_available,
        rocm_available, metal_available, executors, updated_at)
     values
       (${nodeId}, ${c.cpuModel ?? null}, ${c.cpuCores ?? null}, ${c.cpuThreads ?? null},
        ${c.ramGb ?? null}, ${c.diskGb ?? null}, ${c.gpuCount ?? null},
        ${c.gpuModels ? sql.json(toJson(c.gpuModels)) : null}, ${c.gpuVramGb ? sql.json(toJson(c.gpuVramGb)) : null},
+       ${c.tpGroups ? sql.json(toJson(c.tpGroups)) : null},
        ${c.os ?? null}, ${c.architecture ?? null}, ${c.dockerAvailable ?? null},
        ${c.cudaAvailable ?? null}, ${c.rocmAvailable ?? null}, ${c.metalAvailable ?? null},
        ${c.executors ? sql.json(toJson(c.executors)) : null}, now())
@@ -183,6 +184,7 @@ export async function upsertCapabilities(
       cpu_threads = excluded.cpu_threads, ram_gb = excluded.ram_gb,
       disk_gb = excluded.disk_gb, gpu_count = excluded.gpu_count,
       gpu_models = excluded.gpu_models, gpu_vram_gb = excluded.gpu_vram_gb,
+      tp_groups = excluded.tp_groups,
       os = excluded.os, architecture = excluded.architecture,
       docker_available = excluded.docker_available, cuda_available = excluded.cuda_available,
       rocm_available = excluded.rocm_available, metal_available = excluded.metal_available,
@@ -241,8 +243,10 @@ export async function getPlacementCandidates(): Promise<PlacementCandidate[]> {
       l.name          as location_name,
       c.ram_gb, c.cpu_cores, c.cpu_threads, c.architecture,
       c.docker_available, c.cuda_available, c.rocm_available, c.metal_available, c.gpu_count, c.executors,
+      c.tp_groups,
       coalesce(q.queue_length, 0) as queue_length,
-      b.score         as benchmark_score
+      b.score         as benchmark_score,
+      (lease.node_id is not null) as active_lease
     from nodes n
     left join node_locations l on l.id = n.location_id
     left join node_capabilities c on c.node_id = n.id
@@ -255,7 +259,15 @@ export async function getPlacementCandidates(): Promise<PlacementCandidate[]> {
       select score from node_benchmarks
       where node_id = n.id and benchmark_type = 'cpu' and status = 'completed' and score is not null
       order by started_at desc limit 1
-    ) b on true`;
+    ) b on true
+    -- A Model-A lease that is active AND not yet expired excludes the node from
+    -- hosted placement (the unexpired check means an un-swept stale lease frees
+    -- the node automatically — placement correctness doesn't await the sweep).
+    left join lateral (
+      select 1 as node_id from device_leases dl
+      where dl.node_id = n.id and dl.status = 'active' and dl.expires_at > now()
+      limit 1
+    ) lease on true`;
 
   return rows.map((r): PlacementCandidate => {
     const status = r.status as NodeStatus;
@@ -278,9 +290,11 @@ export async function getPlacementCandidates(): Promise<PlacementCandidate[]> {
         metalAvailable: r.metal_available ?? undefined,
         gpuCount: r.gpu_count != null ? Number(r.gpu_count) : undefined,
         executors: (r.executors as string[]) ?? [],
+        tpGroups: (r.tp_groups as number[][]) ?? undefined,
       },
       queueLength: Number(r.queue_length),
       benchmarkScore: r.benchmark_score != null ? Number(r.benchmark_score) : undefined,
+      activeLease: Boolean(r.active_lease),
     };
   });
 }

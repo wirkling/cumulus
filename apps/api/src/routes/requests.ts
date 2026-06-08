@@ -10,7 +10,20 @@ import { submitAndDispatch } from '../services/submit.js';
 
 export const submitSchema = z
   .object({
-    workloadType: z.enum(['echo_sleep', 'cpu_benchmark', 'split_map_merge']),
+    // Mock routing proxies + the real hosted-inference workloads (Model B).
+    workloadType: z.enum([
+      'echo_sleep',
+      'cpu_benchmark',
+      'split_map_merge',
+      'embeddings',
+      'ocr',
+      'transcription',
+      'llm_generate',
+      'gpu_llm',
+    ]),
+    // The request pipeline serves hosted (Model B) only; `rent` (Model A) is a
+    // device lease, not a request. Defaults to hosted.
+    serviceModel: z.enum(['rent', 'hosted']).optional(),
     fanOut: z.number().int().min(1).max(100),
     originLocation: z
       .object({ lat: z.number(), lng: z.number(), label: z.string().optional() })
@@ -21,11 +34,24 @@ export const submitSchema = z
     onPartial: z.enum(['return_partial', 'fail']).optional(),
     timeoutSeconds: z.number().int().min(1).max(3600).optional(),
     priority: z.enum(['low', 'normal', 'high']).optional(),
+    // Hosted-inference serving hints. The placeable unit is (model, precision);
+    // the VRAM-fit filter that consumes them is Sprint 2. `tpGroupMinCards`
+    // requires a node with an NVLink group of >= N cards (big models).
+    model: z.string().min(1).max(200).optional(),
+    precision: z.enum(['fp16', 'int8', 'int4']).optional(),
+    contextLen: z.number().int().min(1).max(1_048_576).optional(),
+    maxTokens: z.number().int().min(1).max(1_048_576).optional(),
+    tpGroupMinCards: z.number().int().min(1).max(64).optional(),
     input: z.record(z.unknown()).default({}),
   })
   .refine((b) => b.completionPolicy !== 'wait_for_quorum' || (b.quorum ?? 0) >= 1, {
     message: 'quorum is required when completionPolicy is wait_for_quorum',
     path: ['quorum'],
+  })
+  .refine((b) => b.serviceModel !== 'rent', {
+    message:
+      'serviceModel "rent" (Model A) is a device lease, not a request — use POST /api/operator/leases',
+    path: ['serviceModel'],
   });
 
 export async function buildRequestDetail(requestId: string): Promise<RequestDetail | null> {

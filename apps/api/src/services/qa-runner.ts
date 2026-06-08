@@ -154,9 +154,15 @@ async function runScenario(
   const inners = requests
     .map((r) => {
       const mr = r.mergedResult as unknown;
-      return Array.isArray(mr) && mr.length && typeof mr[0] === 'object'
-        ? ((mr[0] as { result?: Record<string, unknown> }).result ?? null)
-        : null;
+      // Shape-agnostic: 'collect' merges yield [{shardIndex, result}], while
+      // 'single' merges (the inference-workload default) yield the bare result
+      // object verbatim. Read the metric out of either.
+      if (Array.isArray(mr)) {
+        return mr.length && typeof mr[0] === 'object' && mr[0] !== null
+          ? ((mr[0] as { result?: Record<string, unknown> }).result ?? null)
+          : null;
+      }
+      return mr && typeof mr === 'object' ? (mr as Record<string, unknown>) : null;
     })
     .filter((x): x is Record<string, unknown> => x !== null);
 

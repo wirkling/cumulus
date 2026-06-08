@@ -9,6 +9,7 @@ export const metadata: Metadata = {
 
 const nav = [
   { href: '/nodes', label: 'Nodes' },
+  { href: '/allocation', label: 'Allocation' },
   { href: '/submit', label: 'Submit' },
   { href: '/requests', label: 'Requests' },
   { href: '/benchmarks', label: 'Benchmarks' },

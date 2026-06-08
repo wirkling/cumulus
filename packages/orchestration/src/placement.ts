@@ -13,10 +13,12 @@ import type {
   GeoPoint,
   NodeStatus,
   PlacementWeights,
+  ServiceModel,
   WorkloadType,
 } from '@cumulus/shared-types';
 import { WORKLOADS } from '@cumulus/shared-types';
 import { haversineKm } from './geo.js';
+import { maxTpGroupCards } from './sizing.js';
 
 export interface PlacementCandidate {
   nodeId: string;
@@ -31,12 +33,18 @@ export interface PlacementCandidate {
   benchmarkScore?: number;
   /** Estimated cost to run on this node (relative units), or undefined. */
   costEstimate?: number;
+  /** True if a Model-A device lease currently holds this node (excludes it from
+   * hosted/Model-B placement — the leased cards belong to the rent customer). */
+  activeLease?: boolean;
 }
 
 export interface PlacementContext {
   workloadType: WorkloadType;
   origin?: GeoPoint;
   requiredCapabilities: Record<string, unknown>;
+  /** Which product this placement serves. Defaults to `hosted` (Model B). Only
+   * hosted work is excluded from lease-held nodes. */
+  serviceModel?: ServiceModel;
   /** Override the per-workload default weights (rare; mostly for tests/tuning). */
   weights?: PlacementWeights;
 }
@@ -59,6 +67,15 @@ export function nodeMatchesRequiredCapabilities(
       if (!Array.isArray(executors) || !executors.includes(want)) return false;
       continue;
     }
+    // Special case: `tpGroupMinCards` requires an NVLink TP group of >= N cards.
+    // This is how a big (sharded) model is routed to the grouped node and never
+    // scattered across single cards — the doc's "stays in one box" rule. It is a
+    // CAPABILITY filter, never locality (locality is never a hard filter).
+    if (key === 'tpGroupMinCards') {
+      const groups = candidate.capabilities.tpGroups as number[][] | undefined;
+      if (typeof want !== 'number' || maxTpGroupCards(groups) < want) return false;
+      continue;
+    }
     const have = candidate.capabilities[key];
     if (typeof want === 'boolean') {
       if (have !== true) return false;
@@ -74,9 +91,13 @@ export function nodeMatchesRequiredCapabilities(
 function passesHardFilters(
   candidate: PlacementCandidate,
   required: Record<string, unknown>,
+  serviceModel: ServiceModel,
 ): boolean {
   if (candidate.status !== 'online') return false;
   if (candidate.unavailable) return false;
+  // A node held by an active Model-A device lease is exclusive to that customer;
+  // hosted (Model B) work must not land on it. Whole-node lease mode (Sprint 1).
+  if (serviceModel !== 'rent' && candidate.activeLease) return false;
   return nodeMatchesRequiredCapabilities(candidate, required);
 }
 
@@ -97,8 +118,9 @@ export function scoreNodes(
   candidates: PlacementCandidate[],
   ctx: PlacementContext,
 ): PlacementResult[] {
+  const serviceModel = ctx.serviceModel ?? 'hosted';
   const eligible = candidates.filter((c) =>
-    passesHardFilters(c, ctx.requiredCapabilities),
+    passesHardFilters(c, ctx.requiredCapabilities, serviceModel),
   );
   if (eligible.length === 0) return [];
 

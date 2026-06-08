@@ -63,6 +63,44 @@ describe('placement hard filters', () => {
     });
     expect(ranked.map((r) => r.nodeId)).toEqual(['ok']);
   });
+
+  it('requires an NVLink TP group of >= N cards for a sharded model', () => {
+    const candidates = [
+      node({ nodeId: 'single', capabilities: { tpGroups: [] } }),
+      node({ nodeId: 'two-singles', capabilities: { tpGroups: [[0], [1]] } }),
+      node({ nodeId: 'grouped', capabilities: { tpGroups: [[0, 1, 2, 3]] } }),
+    ];
+    const ranked = scoreNodes(candidates, {
+      workloadType: 'gpu_llm',
+      requiredCapabilities: { tpGroupMinCards: 2 },
+    });
+    // Only the node with an actual 4-card NVLink group qualifies — two separate
+    // single cards is NOT a TP group (the doc's "stays in one box" distinction).
+    expect(ranked.map((r) => r.nodeId)).toEqual(['grouped']);
+  });
+});
+
+describe('Model-A lease exclusion', () => {
+  it('excludes a lease-held node from hosted (Model B) placement', () => {
+    const candidates = [
+      node({ nodeId: 'leased', activeLease: true }),
+      node({ nodeId: 'free' }),
+    ];
+    const ranked = scoreNodes(candidates, {
+      workloadType: 'gpu_llm',
+      requiredCapabilities: {},
+      serviceModel: 'hosted',
+    });
+    expect(ranked.map((r) => r.nodeId)).toEqual(['free']);
+  });
+
+  it('defaults to hosted: a leased node is excluded when serviceModel is omitted', () => {
+    const ranked = scoreNodes([node({ nodeId: 'leased', activeLease: true })], {
+      workloadType: 'gpu_llm',
+      requiredCapabilities: {},
+    });
+    expect(ranked).toEqual([]);
+  });
 });
 
 describe('locality-aware scoring', () => {

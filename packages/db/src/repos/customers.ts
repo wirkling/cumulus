@@ -23,6 +23,12 @@ export async function findCustomerByKeyHash(apiKeyHash: string): Promise<Custome
   return rows[0] ? mapCustomer(rows[0]) : null;
 }
 
+export async function getCustomer(id: string): Promise<Customer | null> {
+  const sql = getSql();
+  const rows = await sql`select * from customers where id = ${id} limit 1`;
+  return rows[0] ? mapCustomer(rows[0]) : null;
+}
+
 export async function listCustomers(): Promise<Customer[]> {
   const sql = getSql();
   const rows = await sql`select * from customers order by created_at desc`;

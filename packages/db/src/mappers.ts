@@ -12,6 +12,7 @@ import type {
   Request as JobRequest,
   Job,
   JobAttempt,
+  DeviceLease,
   UsageEvent,
   OperatorAction,
   Customer,
@@ -73,6 +74,7 @@ export function mapCapability(r: Row): NodeCapability {
     gpuCount: num(r.gpu_count),
     gpuModels: (r.gpu_models as string[]) ?? undefined,
     gpuVramGb: (r.gpu_vram_gb as number[]) ?? undefined,
+    tpGroups: (r.tp_groups as number[][]) ?? undefined,
     os: str(r.os),
     architecture: r.architecture as NodeCapability['architecture'],
     dockerAvailable: r.docker_available as boolean | undefined,
@@ -115,6 +117,7 @@ export function mapRequest(r: Row): JobRequest {
   return {
     id: String(r.id),
     workloadType: r.workload_type as JobRequest['workloadType'],
+    serviceModel: (r.service_model as JobRequest['serviceModel']) ?? 'hosted',
     status: r.status as JobRequest['status'],
     fanOut: Number(r.fan_out),
     originLocation:
@@ -166,6 +169,21 @@ export function mapAttempt(r: Row): JobAttempt {
     resourceUsage: (r.resource_usage as JobAttempt['resourceUsage']) ?? undefined,
     placementDistanceKm: num(r.placement_distance_km),
     placementScore: num(r.placement_score),
+    createdAt: iso(r.created_at),
+  };
+}
+
+export function mapDeviceLease(r: Row): DeviceLease {
+  return {
+    id: String(r.id),
+    nodeId: String(r.node_id),
+    customerId: String(r.customer_id),
+    gpuIndices: (r.gpu_indices as number[]) ?? [],
+    status: r.status as DeviceLease['status'],
+    startedAt: iso(r.started_at),
+    expiresAt: iso(r.expires_at),
+    releasedAt: isoOpt(r.released_at),
+    metadata: (r.metadata as Record<string, unknown>) ?? undefined,
     createdAt: iso(r.created_at),
   };
 }

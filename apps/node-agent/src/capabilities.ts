@@ -54,6 +54,7 @@ export async function scanCapabilities(): Promise<CapabilityReport> {
     gpuCount: gpu?.count ?? 0,
     gpuModels: gpu?.models,
     gpuVramGb: gpu?.vramGb,
+    tpGroups: gpu?.tpGroups,
     cudaAvailable: gpu != null,
     rocmAvailable: false,
     // Metal is the realistic accelerator path on a Mac mini (0b).
