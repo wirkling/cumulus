@@ -18,19 +18,26 @@ export const ASSUMPTIONS = {
   kwPerGpu: 0.6, // consumer GPU (4090 ≈ 0.45 kW) + cooling/overhead (PUE ≈ 1.3)
   sqmPerGpu: 0.5, // effective m²/GPU in a building retrofit (rack + aisle + cooling/electrical)
   targetUtilizationPct: 72, // assumed steady-state utilization
-  energyPriceEurKwh: 0.22, // €/kWh (adjustable)
+  energyPriceEurKwh: 0.3, // €/kWh (German grid; adjustable)
   avgSolarPct: 18, // avg on-site generation share
-  hostSharePct: 0.3, // RE host's share of gross compute revenue (adjustable)
+  // RE host's share — basis depends on splitMode (% of gross / % of operating
+  // profit / fixed rent). Default is profit-based (can never make Cumulus negative).
+  hostSharePct: 0.4,
+  fixedRentPerKwMonth: 80, // alt: fixed rent per kW of compute (Fixpreis mode)
   // Share of a building's MAX grid connection realistically usable as flexible /
-  // curtailable compute load (the connection is sized for the building's own
-  // all-electric peak; only the headroom hosts compute). KEY assumption to
-  // calibrate with grid knowledge.
+  // curtailable compute load. KEY assumption to calibrate with grid knowledge.
   computeHeadroomPct: 0.2,
-  // Cumulus capex: fully-installed cost per GPU (GPU + server/network/cooling/
-  // install share). Cumulus funds the hardware (adjustable).
-  capexPerGpuEur: 3000,
+  // Cumulus capex: fully-installed €/GPU — GPU + host/"feeder" server + network +
+  // rack/PDU + cooling + electrical/install. Cumulus funds it (adjustable).
+  capexPerGpuEur: 4500,
   hardwareLifeMonths: 36, // amortization period
+  // Heat reuse — waste heat warms the host's building, offsetting their heating
+  // bill. This is value to the HOST (justifies a modest cash share).
+  heatRecoveryPct: 0.6, // share of consumed power recoverable as useful heat
+  heatValueEurKwh: 0.1, // €/kWh-thermal the host would otherwise pay
 };
+
+export type SplitMode = 'umsatz' | 'ergebnis' | 'fix';
 const HOURS_PER_MONTH = 730;
 /** Derived: every €/kW figure on the board uses this one rate (≈ €355). */
 export const revPerKwMonth = ASSUMPTIONS.revPerGpuMonth / ASSUMPTIONS.kwPerGpu;
@@ -149,8 +156,11 @@ export function series(site: Site, kind: SeriesKind, points = 24): number[] {
 export interface BoardKpis {
   grossEur: number; // total compute billings (Cumulus top line)
   grossArrEur: number;
-  hostPayoutEur: number; // RE host's share (their revenue)
+  hostPayoutEur: number; // RE host's cash share
   hostSharePct: number;
+  splitMode: SplitMode;
+  heatCreditEur: number; // waste-heat value to the host
+  hostTotalBenefitEur: number; // host cash + heat
   contributionEur: number; // gross − host − energy (operating contribution)
   gpus: number;
   capexEur: number; // Cumulus hardware investment for the active fleet
@@ -170,13 +180,21 @@ export interface BoardKpis {
   grossTrend: number[];
 }
 
-export function boardKpis(
-  sites: Site[],
-  customers: number,
-  energyPriceEurKwh: number = ASSUMPTIONS.energyPriceEurKwh,
-  hostSharePct: number = ASSUMPTIONS.hostSharePct,
-  capexPerGpuEur: number = ASSUMPTIONS.capexPerGpuEur,
-): BoardKpis {
+export interface KpiLevers {
+  energyPriceEurKwh?: number;
+  hostSharePct?: number;
+  capexPerGpuEur?: number;
+  splitMode?: SplitMode;
+  fixedRentPerKwMonth?: number;
+}
+
+export function boardKpis(sites: Site[], customers: number, levers: KpiLevers = {}): BoardKpis {
+  const energyPriceEurKwh = levers.energyPriceEurKwh ?? ASSUMPTIONS.energyPriceEurKwh;
+  const hostSharePct = levers.hostSharePct ?? ASSUMPTIONS.hostSharePct;
+  const capexPerGpuEur = levers.capexPerGpuEur ?? ASSUMPTIONS.capexPerGpuEur;
+  const splitMode = levers.splitMode ?? 'ergebnis';
+  const fixedRentPerKwMonth = levers.fixedRentPerKwMonth ?? ASSUMPTIONS.fixedRentPerKwMonth;
+
   const live = sites.filter((s) => s.online);
   const gross = sites.reduce((a, s) => a + s.monthlyRevenueEur, 0);
   const cap = sites.reduce((a, s) => a + s.capacityKw, 0);
@@ -185,20 +203,34 @@ export function boardKpis(
   const avgUtil = live.length
     ? Math.round(live.reduce((a, s) => a + s.utilizationPct, 0) / live.length)
     : 0;
-  // Revenue split: the RE host gets a share of gross; energy (only the grid part
-  // is paid) is a Cumulus cost → operating contribution.
-  const hostPayout = Math.round(gross * hostSharePct);
+
   const energyCost = Math.round(grid * HOURS_PER_MONTH * energyPriceEurKwh);
-  const contribution = Math.max(0, gross - hostPayout - energyCost);
-  // Capex: Cumulus buys the GPUs. Amortized over the hardware life; payback runs
-  // off the operating contribution.
   const gpus = Math.round(cap / ASSUMPTIONS.kwPerGpu);
   const capex = Math.round(gpus * capexPerGpuEur);
   const amort = Math.round(capex / ASSUMPTIONS.hardwareLifeMonths);
-  const cumulusResult = contribution - amort; // can be negative early
+
+  // Host payout depends on the participation model:
+  //  - umsatz:   % of gross (fragile — can make Cumulus negative)
+  //  - ergebnis: % of operating profit after energy + capex (never negative)
+  //  - fix:      fixed rent per kW of compute capacity
+  const profitBeforeHost = Math.max(0, gross - energyCost - amort);
+  const hostPayout =
+    splitMode === 'fix'
+      ? Math.round(fixedRentPerKwMonth * cap)
+      : splitMode === 'ergebnis'
+        ? Math.round(hostSharePct * profitBeforeHost)
+        : Math.round(hostSharePct * gross);
+
+  const contribution = Math.max(0, gross - hostPayout - energyCost);
+  const cumulusResult = gross - hostPayout - energyCost - amort; // can be negative (umsatz/fix)
   const payback = contribution > 0 ? Math.round(capex / contribution) : 0;
   const cumulusMargin = gross > 0 ? Math.round((cumulusResult / gross) * 100) : 0;
-  // 6-month ramp ending at the (derived) current gross.
+
+  // Heat reuse — waste heat warms the host's building (value to the host).
+  const heatCredit = Math.round(
+    power * HOURS_PER_MONTH * ASSUMPTIONS.heatRecoveryPct * ASSUMPTIONS.heatValueEurKwh,
+  );
+
   const r = rng('gross-trend');
   const trend: number[] = [];
   let v = gross * 0.52;
@@ -211,6 +243,9 @@ export function boardKpis(
     grossArrEur: gross * 12,
     hostPayoutEur: hostPayout,
     hostSharePct,
+    splitMode,
+    heatCreditEur: heatCredit,
+    hostTotalBenefitEur: hostPayout + heatCredit,
     contributionEur: contribution,
     gpus,
     capexEur: capex,

@@ -22,6 +22,7 @@ import {
   fmtNum,
   type Site,
   type SeriesKind,
+  type SplitMode,
 } from './mock';
 import { TAMAX_PORTFOLIO, type PortfolioSite } from './tamax-portfolio';
 
@@ -53,6 +54,8 @@ export default function BoardPage() {
   const [energyPrice, setEnergyPrice] = useState(ASSUMPTIONS.energyPriceEurKwh);
   const [hostShare, setHostShare] = useState(ASSUMPTIONS.hostSharePct);
   const [capexPerGpu, setCapexPerGpu] = useState(ASSUMPTIONS.capexPerGpuEur);
+  const [splitMode, setSplitMode] = useState<SplitMode>('ergebnis');
+  const [fixedRent, setFixedRent] = useState(ASSUMPTIONS.fixedRentPerKwMonth);
   const [added, setAdded] = useState<number[]>([]);
   const [customSites, setCustomSites] = useState<Site[]>([]);
   const toggleAdd = (id: number) =>
@@ -68,8 +71,15 @@ export default function BoardPage() {
   const tamaxSites = useMemo(() => [...addedSites, ...customSites], [addedSites, customSites]);
   const effectiveSites = useMemo(() => [...sites, ...tamaxSites], [sites, tamaxSites]);
   const kpis = useMemo(
-    () => boardKpis(effectiveSites, customers?.length ?? 0, energyPrice, hostShare, capexPerGpu),
-    [effectiveSites, customers, energyPrice, hostShare, capexPerGpu],
+    () =>
+      boardKpis(effectiveSites, customers?.length ?? 0, {
+        energyPriceEurKwh: energyPrice,
+        hostSharePct: hostShare,
+        capexPerGpuEur: capexPerGpu,
+        splitMode,
+        fixedRentPerKwMonth: fixedRent,
+      }),
+    [effectiveSites, customers, energyPrice, hostShare, capexPerGpu, splitMode, fixedRent],
   );
   const selected = effectiveSites.find((s) => s.id === selId) ?? null;
   const preview = previewId != null ? (TAMAX_PORTFOLIO.find((p) => p.id === previewId) ?? null) : null;
@@ -87,6 +97,12 @@ export default function BoardPage() {
   const liveNodes = nodes.filter((n) => n.status === 'online').length;
   const liveJobs = allocation?.jobs.length ?? 0;
   const liveLeases = allocation?.leases.length ?? 0;
+  const splitLabel =
+    splitMode === 'fix'
+      ? `${fmtEurFull(fixedRent)}/kW·Mt`
+      : splitMode === 'ergebnis'
+        ? `${pct(hostShare)}% vom Ergebnis`
+        : `${pct(hostShare)}% vom Umsatz`;
 
   return (
     <div className="mx-auto max-w-[1180px] px-6 py-7">
@@ -120,10 +136,10 @@ export default function BoardPage() {
       <section className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
         {(role === 'owner'
           ? [
-              { l: 'Aktive Standorte', v: String(kpis.liveSites), s: `von ${sites.length} Gebäuden` },
-              { l: 'Ihre Vergütung', v: ca(fmtEurFull(kpis.hostPayoutEur)), s: `${pct(hostShare)}% vom Rechenumsatz / Monat` },
-              { l: 'Ø Auslastung', v: `${kpis.avgUtilizationPct}%`, s: 'der Rechenleistung' },
-              { l: 'Leistungsaufnahme', v: `${kpis.totalPowerKw} kW`, s: `${kpis.totalGridKw} kW aus dem Netz` },
+              { l: 'Vergütung (bar)', v: ca(fmtEurFull(kpis.hostPayoutEur)), s: splitLabel },
+              { l: '+ Wärme-Gutschrift', v: ca(fmtEurFull(kpis.heatCreditEur)), s: 'Heizkosten gespart / Mt' },
+              { l: '= Gesamtnutzen', v: ca(fmtEurFull(kpis.hostTotalBenefitEur)), s: 'passiv, ohne Investition / Mt' },
+              { l: 'Aktive Standorte', v: String(kpis.liveSites), s: `${kpis.totalCapacityKw} kW Rechenlast` },
             ]
           : [
               { l: 'Live-Betrieb', v: `${liveNodes}/${nodes.length} Knoten`, s: `${liveJobs} Anfragen orchestriert` },
@@ -146,7 +162,27 @@ export default function BoardPage() {
       {role === 'owner' && (
         <section className="reveal mb-6" style={{ '--d': '300ms' } as React.CSSProperties}>
           <div className="b-card b-card-pad">
-            <div className="b-kpi-label mb-3">Stellschrauben — wirken auf beide Ansichten</div>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <span className="b-kpi-label">Stellschrauben — wirken auf beide Ansichten</span>
+              <div className="seg" role="tablist" aria-label="Beteiligungsmodell">
+                {(
+                  [
+                    ['ergebnis', '% vom Ergebnis'],
+                    ['umsatz', '% vom Umsatz'],
+                    ['fix', 'Fixpreis je kW'],
+                  ] as const
+                ).map(([m, lbl]) => (
+                  <button
+                    key={m}
+                    className={splitMode === m ? 'active' : ''}
+                    onClick={() => setSplitMode(m)}
+                    style={{ fontSize: '0.72rem', padding: '0.32rem 0.7rem' }}
+                  >
+                    {lbl}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="grid gap-5 sm:grid-cols-3">
               <SliderRow
                 label="Strompreis (Cumulus trägt)"
@@ -158,16 +194,29 @@ export default function BoardPage() {
                 accent="var(--navy)"
                 onChange={setEnergyPrice}
               />
-              <SliderRow
-                label="Anteil Immobilienpartner"
-                value={hostShare}
-                min={0.1}
-                max={0.6}
-                step={0.05}
-                display={`${pct(hostShare)}% · Cumulus ${100 - pct(hostShare)}%`}
-                accent="var(--gold)"
-                onChange={setHostShare}
-              />
+              {splitMode === 'fix' ? (
+                <SliderRow
+                  label="Miete je kW Rechenlast"
+                  value={fixedRent}
+                  min={20}
+                  max={300}
+                  step={10}
+                  display={`${fmtEurFull(fixedRent)} / kW·Mt`}
+                  accent="var(--gold)"
+                  onChange={setFixedRent}
+                />
+              ) : (
+                <SliderRow
+                  label={splitMode === 'ergebnis' ? 'Host-Anteil am Ergebnis' : 'Host-Anteil am Umsatz'}
+                  value={hostShare}
+                  min={0.1}
+                  max={splitMode === 'ergebnis' ? 0.8 : 0.4}
+                  step={0.05}
+                  display={`${pct(hostShare)}% · Cumulus ${100 - pct(hostShare)}%`}
+                  accent="var(--gold)"
+                  onChange={setHostShare}
+                />
+              )}
               <SliderRow
                 label="Hardware je GPU (Capex)"
                 value={capexPerGpu}
@@ -251,11 +300,11 @@ export default function BoardPage() {
               </h3>
               <p className="mt-1 text-sm leading-relaxed" style={{ color: 'var(--slate)' }}>
                 Ungenutzte Flächen — Technikräume, Keller, aber auch leerstehende Ladenlokale und
-                Gewerbeeinheiten — beherbergen Rechenleistung. Ihr Anteil:{' '}
-                <strong style={{ color: 'var(--ink)' }}>{ca(fmtEurFull(kpis.hostPayoutEur))}/Monat</strong>{' '}
-                ({pct(hostShare)}% vom Rechenumsatz von {ca(fmtEurFull(kpis.grossEur))}) an{' '}
-                {kpis.liveSites} {kpis.liveSites === 1 ? 'Standort' : 'Standorten'} — passiv;
-                Hardware, Strom und Betrieb finanziert Cumulus.
+                Gewerbeeinheiten — beherbergen Rechenleistung. Ihr Gesamtnutzen:{' '}
+                <strong style={{ color: 'var(--ink)' }}>{ca(fmtEurFull(kpis.hostTotalBenefitEur))}/Monat</strong>{' '}
+                — {ca(fmtEurFull(kpis.hostPayoutEur))} Vergütung + {ca(fmtEurFull(kpis.heatCreditEur))} Wärme
+                (die Abwärme heizt Ihr Gebäude). Passiv, ohne Investition — Hardware, Strom und Betrieb
+                finanziert Cumulus.
               </p>
               <button className="b-btn-primary mt-3" onClick={() => setShowAdd(true)}>
                 + Immobilie hinzufügen
@@ -293,7 +342,13 @@ export default function BoardPage() {
 
       <Portfolio role={role} hostShare={hostShare} added={added} onToggleAdd={toggleAdd} />
 
-      <Assumptions energyPrice={energyPrice} hostShare={hostShare} capexPerGpu={capexPerGpu} />
+      <Assumptions
+        energyPrice={energyPrice}
+        hostShare={hostShare}
+        capexPerGpu={capexPerGpu}
+        splitMode={splitMode}
+        fixedRent={fixedRent}
+      />
 
       <footer className="mt-8 text-xs leading-relaxed" style={{ color: 'var(--slate)' }}>
         Knoten und Status sind <strong style={{ color: 'var(--ink)' }}>live</strong> aus der
@@ -388,9 +443,15 @@ function OwnerSites({
 
 // ── Exec Summary: the revenue → capex waterfall ──────────────────────────────
 function ExecSummary({ kpis }: { kpis: ReturnType<typeof boardKpis> }) {
+  const hostLabel =
+    kpis.splitMode === 'fix'
+      ? '− Miete Immobilienpartner (Fixpreis je kW)'
+      : kpis.splitMode === 'ergebnis'
+        ? `− Anteil Immobilienpartner (${pct(kpis.hostSharePct)}% vom Ergebnis)`
+        : `− Vergütung Immobilienpartner (${pct(kpis.hostSharePct)}% vom Umsatz)`;
   const rows: { l: string; v: string; strong?: boolean }[] = [
     { l: 'Bruttoumsatz (Rechenleistung)', v: fmtEurFull(kpis.grossEur), strong: true },
-    { l: `− Vergütung Immobilienpartner (${pct(kpis.hostSharePct)}%)`, v: '− ' + fmtEurFull(kpis.hostPayoutEur) },
+    { l: hostLabel, v: '− ' + fmtEurFull(kpis.hostPayoutEur) },
     { l: '− Energiekosten (Cumulus)', v: '− ' + fmtEurFull(kpis.energyCostEur) },
     { l: '= Operativer Beitrag / Monat', v: fmtEurFull(kpis.contributionEur), strong: true },
     { l: `− Hardware-Abschreibung (${ASSUMPTIONS.hardwareLifeMonths} Mt)`, v: '− ' + fmtEurFull(kpis.amortEur) },
@@ -424,25 +485,51 @@ function ExecSummary({ kpis }: { kpis: ReturnType<typeof boardKpis> }) {
           ))}
         </div>
       </div>
+      <p className="mt-2 text-xs leading-relaxed" style={{ color: 'var(--slate)' }}>
+        Zusätzlich fließt die <strong style={{ color: 'var(--ink)' }}>Abwärme (~{ca(fmtEurFull(kpis.heatCreditEur))}/Mt Heizwert)</strong>{' '}
+        dem Immobilienpartner als Heizkostenersparnis zu — nicht in dieser Cumulus-Rechnung. Sie ist
+        der Grund, im Gebäude zu rechnen statt nur am billigen Strom, und rechtfertigt einen moderaten
+        Bar-Anteil.
+      </p>
     </section>
   );
 }
 
 // ── Assumptions (single source of truth, made transparent) ───────────────────
-function Assumptions({ energyPrice, hostShare, capexPerGpu }: { energyPrice: number; hostShare: number; capexPerGpu: number }) {
+function Assumptions({
+  energyPrice,
+  hostShare,
+  capexPerGpu,
+  splitMode,
+  fixedRent,
+}: {
+  energyPrice: number;
+  hostShare: number;
+  capexPerGpu: number;
+  splitMode: SplitMode;
+  fixedRent: number;
+}) {
   const de = (n: number) => String(n).replace('.', ',');
+  const splitDesc =
+    splitMode === 'fix'
+      ? `Fixpreis ${fmtEurFull(fixedRent)}/kW·Mt`
+      : splitMode === 'ergebnis'
+        ? `${pct(hostShare)}% vom Ergebnis`
+        : `${pct(hostShare)}% vom Umsatz`;
   const rows: [string, string][] = [
     ['Ertrag je GPU / Monat (Cumulus brutto, konservativ)', ca(fmtEurFull(ASSUMPTIONS.revPerGpuMonth))],
     ['Daraus: Ertrag je kW / Monat (brutto)', ca(fmtEurFull(Math.round(revPerKwMonth)))],
-    ['Umsatzanteil Immobilienpartner (anpassbar)', `${pct(hostShare)}%`],
-    ['Leistung je GPU (4090-Klasse, inkl. Kühlung)', `${de(ASSUMPTIONS.kwPerGpu)} kW`],
-    ['Fläche je GPU (inkl. Gang/Technik)', `${de(ASSUMPTIONS.sqmPerGpu)} m²`],
-    ['Ziel-Auslastung', `${ASSUMPTIONS.targetUtilizationPct}%`],
+    ['Beteiligungsmodell Immobilienpartner (anpassbar)', splitDesc],
+    ['Hardware je GPU, fully installed (anpassbar)', `${fmtEurFull(capexPerGpu)}`],
+    ['  inkl. Server/Feeder, Netzwerk, Rack, Kühlung, Installation', ''],
+    ['Hardware-Laufzeit (Abschreibung)', `${ASSUMPTIONS.hardwareLifeMonths} Monate`],
     ['Strompreis (anpassbar, Cumulus trägt)', `${energyPrice.toFixed(2).replace('.', ',')} €/kWh`],
+    ['Wärmerückgewinnung (Abwärme → Heizung)', `${pct(ASSUMPTIONS.heatRecoveryPct)}%`],
+    ['Wärmewert (verdrängte Heizkosten)', `${de(ASSUMPTIONS.heatValueEurKwh)} €/kWh`],
+    ['Leistung je GPU (4090-Klasse, inkl. Kühlung)', `${de(ASSUMPTIONS.kwPerGpu)} kW`],
+    ['Ziel-Auslastung', `${ASSUMPTIONS.targetUtilizationPct}%`],
     ['Eigenstrom (Solar), Ø', `${ASSUMPTIONS.avgSolarPct}%`],
     ['Nutzbarer Anteil des Netzanschlusses', `${pct(ASSUMPTIONS.computeHeadroomPct)}%`],
-    ['Hardware-Kosten je GPU (anpassbar)', `${fmtEurFull(capexPerGpu)}`],
-    ['Hardware-Laufzeit (Abschreibung)', `${ASSUMPTIONS.hardwareLifeMonths} Monate`],
   ];
   return (
     <section className="reveal mt-6" style={{ '--d': '680ms' } as React.CSSProperties}>
