@@ -22,7 +22,6 @@ import {
   fmtNum,
   type Site,
   type SeriesKind,
-  type SplitMode,
 } from './mock';
 import { TAMAX_PORTFOLIO, type PortfolioSite } from './tamax-portfolio';
 
@@ -54,8 +53,6 @@ export default function BoardPage() {
   const [energyPrice, setEnergyPrice] = useState(ASSUMPTIONS.energyPriceEurKwh);
   const [hostShare, setHostShare] = useState(ASSUMPTIONS.hostSharePct);
   const [capexPerGpu, setCapexPerGpu] = useState(ASSUMPTIONS.capexPerGpuEur);
-  const [splitMode, setSplitMode] = useState<SplitMode>('ergebnis');
-  const [fixedRent, setFixedRent] = useState(ASSUMPTIONS.fixedRentPerKwMonth);
   const [added, setAdded] = useState<number[]>([]);
   const [customSites, setCustomSites] = useState<Site[]>([]);
   const toggleAdd = (id: number) =>
@@ -76,10 +73,8 @@ export default function BoardPage() {
         energyPriceEurKwh: energyPrice,
         hostSharePct: hostShare,
         capexPerGpuEur: capexPerGpu,
-        splitMode,
-        fixedRentPerKwMonth: fixedRent,
       }),
-    [effectiveSites, customers, energyPrice, hostShare, capexPerGpu, splitMode, fixedRent],
+    [effectiveSites, customers, energyPrice, hostShare, capexPerGpu],
   );
   const selected = effectiveSites.find((s) => s.id === selId) ?? null;
   const preview = previewId != null ? (TAMAX_PORTFOLIO.find((p) => p.id === previewId) ?? null) : null;
@@ -97,12 +92,7 @@ export default function BoardPage() {
   const liveNodes = nodes.filter((n) => n.status === 'online').length;
   const liveJobs = allocation?.jobs.length ?? 0;
   const liveLeases = allocation?.leases.length ?? 0;
-  const splitLabel =
-    splitMode === 'fix'
-      ? `${fmtEurFull(fixedRent)}/kW·Mt`
-      : splitMode === 'ergebnis'
-        ? `${pct(hostShare)}% vom Ergebnis`
-        : `${pct(hostShare)}% vom Umsatz`;
+  const splitLabel = `${pct(hostShare)}% vom Ergebnis`;
 
   return (
     <div className="mx-auto max-w-[1180px] px-6 py-7">
@@ -136,9 +126,9 @@ export default function BoardPage() {
       <section className="mb-4 grid grid-cols-2 gap-3 md:grid-cols-4">
         {(role === 'owner'
           ? [
-              { l: 'Vergütung (bar)', v: ca(fmtEurFull(kpis.hostPayoutEur)), s: splitLabel },
+              { l: 'Vergütung', v: ca(fmtEurFull(kpis.hostPayoutEur)), s: splitLabel },
               { l: '+ Wärme-Gutschrift', v: ca(fmtEurFull(kpis.heatCreditEur)), s: 'Heizkosten gespart / Mt' },
-              { l: '= Gesamtnutzen', v: ca(fmtEurFull(kpis.hostTotalBenefitEur)), s: 'passiv, ohne Investition / Mt' },
+              { l: '= Gesamtnutzen', v: ca(fmtEurFull(kpis.hostTotalBenefitEur)), s: 'weitgehend passiv / Mt' },
               { l: 'Aktive Standorte', v: String(kpis.liveSites), s: `${kpis.totalCapacityKw} kW Rechenlast` },
             ]
           : [
@@ -162,27 +152,7 @@ export default function BoardPage() {
       {role === 'owner' && (
         <section className="reveal mb-6" style={{ '--d': '300ms' } as React.CSSProperties}>
           <div className="b-card b-card-pad">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <span className="b-kpi-label">Stellschrauben — wirken auf beide Ansichten</span>
-              <div className="seg" role="tablist" aria-label="Beteiligungsmodell">
-                {(
-                  [
-                    ['ergebnis', '% vom Ergebnis'],
-                    ['umsatz', '% vom Umsatz'],
-                    ['fix', 'Fixpreis je kW'],
-                  ] as const
-                ).map(([m, lbl]) => (
-                  <button
-                    key={m}
-                    className={splitMode === m ? 'active' : ''}
-                    onClick={() => setSplitMode(m)}
-                    style={{ fontSize: '0.72rem', padding: '0.32rem 0.7rem' }}
-                  >
-                    {lbl}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <div className="b-kpi-label mb-3">Stellschrauben — wirken auf beide Ansichten</div>
             <div className="grid gap-5 sm:grid-cols-3">
               <SliderRow
                 label="Strompreis (Cumulus trägt)"
@@ -194,29 +164,16 @@ export default function BoardPage() {
                 accent="var(--navy)"
                 onChange={setEnergyPrice}
               />
-              {splitMode === 'fix' ? (
-                <SliderRow
-                  label="Miete je kW Rechenlast"
-                  value={fixedRent}
-                  min={20}
-                  max={300}
-                  step={10}
-                  display={`${fmtEurFull(fixedRent)} / kW·Mt`}
-                  accent="var(--gold)"
-                  onChange={setFixedRent}
-                />
-              ) : (
-                <SliderRow
-                  label={splitMode === 'ergebnis' ? 'Host-Anteil am Ergebnis' : 'Host-Anteil am Umsatz'}
-                  value={hostShare}
-                  min={0.1}
-                  max={splitMode === 'ergebnis' ? 0.8 : 0.4}
-                  step={0.05}
-                  display={`${pct(hostShare)}% · Cumulus ${100 - pct(hostShare)}%`}
-                  accent="var(--gold)"
-                  onChange={setHostShare}
-                />
-              )}
+              <SliderRow
+                label="Host-Anteil am Ergebnis"
+                value={hostShare}
+                min={0.1}
+                max={0.8}
+                step={0.05}
+                display={`${pct(hostShare)}% · Cumulus ${100 - pct(hostShare)}%`}
+                accent="var(--gold)"
+                onChange={setHostShare}
+              />
               <SliderRow
                 label="Hardware je GPU (Capex)"
                 value={capexPerGpu}
@@ -303,8 +260,9 @@ export default function BoardPage() {
                 Gewerbeeinheiten — beherbergen Rechenleistung. Ihr Gesamtnutzen:{' '}
                 <strong style={{ color: 'var(--ink)' }}>{ca(fmtEurFull(kpis.hostTotalBenefitEur))}/Monat</strong>{' '}
                 — {ca(fmtEurFull(kpis.hostPayoutEur))} Vergütung + {ca(fmtEurFull(kpis.heatCreditEur))} Wärme
-                (die Abwärme heizt Ihr Gebäude). Passiv, ohne Investition — Hardware, Strom und Betrieb
-                finanziert Cumulus.
+                (die Abwärme heizt Ihr Gebäude). Hardware, Strom und Betrieb finanziert Cumulus; für die
+                Wärmeauskopplung ist je nach Gebäude — v. a. im Bestand — eine einmalige
+                Anschlussinvestition nötig.
               </p>
               <button className="b-btn-primary mt-3" onClick={() => setShowAdd(true)}>
                 + Immobilie hinzufügen
@@ -342,13 +300,7 @@ export default function BoardPage() {
 
       <Portfolio role={role} hostShare={hostShare} added={added} onToggleAdd={toggleAdd} />
 
-      <Assumptions
-        energyPrice={energyPrice}
-        hostShare={hostShare}
-        capexPerGpu={capexPerGpu}
-        splitMode={splitMode}
-        fixedRent={fixedRent}
-      />
+      <Assumptions energyPrice={energyPrice} hostShare={hostShare} capexPerGpu={capexPerGpu} />
 
       <footer className="mt-8 text-xs leading-relaxed" style={{ color: 'var(--slate)' }}>
         Knoten und Status sind <strong style={{ color: 'var(--ink)' }}>live</strong> aus der
@@ -496,26 +448,9 @@ function ExecSummary({ kpis }: { kpis: ReturnType<typeof boardKpis> }) {
 }
 
 // ── Assumptions (single source of truth, made transparent) ───────────────────
-function Assumptions({
-  energyPrice,
-  hostShare,
-  capexPerGpu,
-  splitMode,
-  fixedRent,
-}: {
-  energyPrice: number;
-  hostShare: number;
-  capexPerGpu: number;
-  splitMode: SplitMode;
-  fixedRent: number;
-}) {
+function Assumptions({ energyPrice, hostShare, capexPerGpu }: { energyPrice: number; hostShare: number; capexPerGpu: number }) {
   const de = (n: number) => String(n).replace('.', ',');
-  const splitDesc =
-    splitMode === 'fix'
-      ? `Fixpreis ${fmtEurFull(fixedRent)}/kW·Mt`
-      : splitMode === 'ergebnis'
-        ? `${pct(hostShare)}% vom Ergebnis`
-        : `${pct(hostShare)}% vom Umsatz`;
+  const splitDesc = `${pct(hostShare)}% vom Ergebnis`;
   const rows: [string, string][] = [
     ['Ertrag je GPU / Monat (Cumulus brutto, konservativ)', ca(fmtEurFull(ASSUMPTIONS.revPerGpuMonth))],
     ['Daraus: Ertrag je kW / Monat (brutto)', ca(fmtEurFull(Math.round(revPerKwMonth)))],
