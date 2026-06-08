@@ -107,7 +107,7 @@ export default function BoardPage() {
           </span>
           <div className="seg" role="tablist" aria-label="Ansicht">
             <button className={role === 'owner' ? 'active' : ''} onClick={() => setRole('owner')}>
-              Immobilieneigentümer
+              TAMAX Opportunity Simulator
             </button>
             <button className={role === 'board' ? 'active' : ''} onClick={() => setRole('board')}>
               Cumulus Summary
