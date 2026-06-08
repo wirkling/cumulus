@@ -10,17 +10,19 @@ import {
   series,
   boardKpis,
   estimateProperty,
-  projectedMrr,
   hostShareOf,
+  portfolioToSite,
+  portfolioComputeKw,
+  portfolioMrr,
   ASSUMPTIONS,
   revPerKwMonth,
-  PIPELINE,
   fmtEur,
   fmtEurFull,
   fmtNum,
   type Site,
   type SeriesKind,
 } from './mock';
+import { TAMAX_PORTFOLIO } from './tamax-portfolio';
 
 const MapboxMap = dynamic(() => import('./MapboxMap').then((m) => m.MapboxMap), { ssr: false });
 const HAS_MAPBOX = !!process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -28,7 +30,6 @@ const HAS_MAPBOX = !!process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 type Role = 'owner' | 'board';
 const ca = (s: string) => `ca. ${s}`;
 const pct = (f: number) => Math.round(f * 100);
-const STAGE_LABEL: Record<string, string> = { signed: 'zugesagt', survey: 'in Prüfung', candidate: 'Kandidat' };
 
 function aggSeries(sites: Site[], kind: SeriesKind): number[] {
   const live = sites.filter((s) => s.online);
@@ -48,13 +49,21 @@ export default function BoardPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [energyPrice, setEnergyPrice] = useState(ASSUMPTIONS.energyPriceEurKwh);
   const [hostShare, setHostShare] = useState(ASSUMPTIONS.hostSharePct);
+  const [added, setAdded] = useState<number[]>([]);
+  const toggleAdd = (id: number) =>
+    setAdded((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
 
   const sites = useMemo(() => (nodes ?? []).map(siteFromNode), [nodes]);
-  const kpis = useMemo(
-    () => boardKpis(sites, customers?.length ?? 0, energyPrice, hostShare),
-    [sites, customers, energyPrice, hostShare],
+  const addedSites = useMemo(
+    () => TAMAX_PORTFOLIO.filter((p) => added.includes(p.id)).map(portfolioToSite),
+    [added],
   );
-  const selected = sites.find((s) => s.id === selId) ?? null;
+  const effectiveSites = useMemo(() => [...sites, ...addedSites], [sites, addedSites]);
+  const kpis = useMemo(
+    () => boardKpis(effectiveSites, customers?.length ?? 0, energyPrice, hostShare),
+    [effectiveSites, customers, energyPrice, hostShare],
+  );
+  const selected = effectiveSites.find((s) => s.id === selId) ?? null;
 
   if (!nodes) {
     return (
@@ -151,18 +160,18 @@ export default function BoardPage() {
         <div className="b-card reveal lg:col-span-7" style={{ '--d': '320ms' } as React.CSSProperties}>
           <div className="flex items-baseline justify-between px-4 pb-3 pt-3">
             <h2 className="board-display text-lg" style={{ color: 'var(--navy)' }}>
-              Rechen-Standorte
+              Standortkarte
             </h2>
             <span className="text-xs" style={{ color: 'var(--slate)' }}>
-              Standort anklicken für Details
+              TAMAX-Portfolio (○) anklicken → zur Flotte
             </span>
           </div>
           {HAS_MAPBOX ? (
             <div className="px-3 pb-3">
-              <MapboxMap sites={sites} pipeline={PIPELINE} selectedId={selId} onSelect={setSelId} />
+              <MapboxMap sites={sites} portfolio={TAMAX_PORTFOLIO} added={added} onToggleAdd={toggleAdd} selectedId={selId} onSelect={setSelId} />
             </div>
           ) : (
-            <Atlas sites={sites} pipeline={PIPELINE} selectedId={selId} onSelect={setSelId} />
+            <Atlas sites={sites} portfolio={TAMAX_PORTFOLIO} added={added} onToggleAdd={toggleAdd} selectedId={selId} onSelect={setSelId} />
           )}
         </div>
 
@@ -188,7 +197,7 @@ export default function BoardPage() {
               </div>
             </div>
             <div className="mt-2">
-              <Area data={aggSeries(sites, 'power')} data2={aggSeries(sites, 'grid')} height={92} fmt={(v) => `${v.toFixed(1)} kW`} />
+              <Area data={aggSeries(effectiveSites, 'power')} data2={aggSeries(effectiveSites, 'grid')} height={92} fmt={(v) => `${v.toFixed(1)} kW`} />
             </div>
             <div className="mt-1 flex gap-4 text-[11px]" style={{ color: 'var(--slate)' }}>
               <span className="inline-flex items-center gap-1">
@@ -265,12 +274,12 @@ export default function BoardPage() {
 
       {/* ── Role section ─────────────────────────────────────────────────── */}
       {role === 'owner' ? (
-        <OwnerSites sites={sites} hostShare={hostShare} onSelect={setSelId} onAdd={() => setShowAdd(true)} />
+        <OwnerSites sites={addedSites} hostShare={hostShare} onSelect={setSelId} onAdd={() => setShowAdd(true)} />
       ) : (
         <ExecSummary kpis={kpis} />
       )}
 
-      <Pipeline role={role} hostShare={hostShare} />
+      <Portfolio role={role} hostShare={hostShare} added={added} onToggleAdd={toggleAdd} />
 
       <Assumptions energyPrice={energyPrice} hostShare={hostShare} />
 
@@ -305,12 +314,18 @@ function OwnerSites({
     <section className="reveal mb-6" style={{ '--d': '520ms' } as React.CSSProperties}>
       <div className="mb-3 flex items-baseline justify-between">
         <h2 className="board-display text-lg" style={{ color: 'var(--navy)' }}>
-          Ihre Standorte
+          Ihre aktivierten Standorte
         </h2>
         <button className="b-btn-ghost" onClick={onAdd}>
-          + Immobilie hinzufügen
+          + Immobilie schätzen
         </button>
       </div>
+      {sites.length === 0 && (
+        <div className="b-card b-card-pad text-sm" style={{ color: 'var(--slate)' }}>
+          Noch keine Fläche aktiviert. Wählen Sie unten in der Liste oder auf der Karte (○) Gebäude
+          aus Ihrem Portfolio aus — die Kennzahlen oben aktualisieren sich sofort.
+        </div>
+      )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {sites.map((s) => (
           <button key={s.id} onClick={() => onSelect(s.id)} className="b-card b-card-pad text-left transition-transform hover:-translate-y-0.5">
@@ -398,6 +413,7 @@ function Assumptions({ energyPrice, hostShare }: { energyPrice: number; hostShar
     ['Ziel-Auslastung', `${ASSUMPTIONS.targetUtilizationPct}%`],
     ['Strompreis (anpassbar, Cumulus trägt)', `${energyPrice.toFixed(2).replace('.', ',')} €/kWh`],
     ['Eigenstrom (Solar), Ø', `${ASSUMPTIONS.avgSolarPct}%`],
+    ['Nutzbarer Anteil des Netzanschlusses', `${pct(ASSUMPTIONS.computeHeadroomPct)}%`],
   ];
   return (
     <section className="reveal mt-6" style={{ '--d': '680ms' } as React.CSSProperties}>
@@ -427,51 +443,92 @@ function Assumptions({ energyPrice, hostShare }: { energyPrice: number; hostShar
   );
 }
 
-// ── Expansion pipeline ───────────────────────────────────────────────────────
-function Pipeline({ role, hostShare }: { role: Role; hostShare: number }) {
+// ── TAMAX portfolio — add buildings to the fleet ─────────────────────────────
+function Portfolio({
+  role,
+  hostShare,
+  added,
+  onToggleAdd,
+}: {
+  role: Role;
+  hostShare: number;
+  added: number[];
+  onToggleAdd: (id: number) => void;
+}) {
   const isOwner = role === 'owner';
-  const monthly = (kw: number) => (isOwner ? hostShareOf(projectedMrr(kw), hostShare) : projectedMrr(kw));
-  const total = PIPELINE.reduce((a, p) => a + monthly(p.projectedKw), 0);
+  const addedSet = new Set(added);
+  const sorted = [...TAMAX_PORTFOLIO].sort((a, b) => b.connectionKw - a.connectionKw);
+  const shown = (kw: number) => (isOwner ? hostShareOf(kw, hostShare) : kw);
+  const addedTotal = sorted.filter((p) => addedSet.has(p.id)).reduce((a, p) => a + shown(portfolioMrr(p)), 0);
+  const allTotal = sorted.reduce((a, p) => a + shown(portfolioMrr(p)), 0);
   return (
     <section className="reveal mb-2" style={{ '--d': '600ms' } as React.CSSProperties}>
-      <div className="mb-3 flex items-baseline justify-between">
+      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="board-display text-lg" style={{ color: 'var(--navy)' }}>
-          {isOwner ? 'Weitere Flächen anbinden' : 'Ausbau-Pipeline'}
+          TAMAX-Portfolio — Flächen anbinden
         </h2>
-        <span className="text-sm" style={{ color: 'var(--gold)' }}>
-          + {ca(fmtEurFull(total))}/Monat {isOwner ? 'für Sie möglich' : 'brutto möglich'}
+        <span className="text-sm" style={{ color: 'var(--slate)' }}>
+          {added.length}/{TAMAX_PORTFOLIO.length} aktiviert ·{' '}
+          <span style={{ color: 'var(--gold)', fontWeight: 600 }}>+ {ca(fmtEurFull(addedTotal))}/Monat</span>{' '}
+          · Gesamtpotenzial {ca(fmtEurFull(allTotal))}/Monat
         </span>
       </div>
       <div className="b-card overflow-hidden">
-        <table className="b-table w-full text-sm">
-          <thead>
-            <tr style={{ borderBottom: '1px solid var(--line)' }}>
-              <th className="text-left">Ort</th>
-              <th className="text-left">Gebäude</th>
-              <th className="text-left">Status</th>
-              <th className="text-right">Leistung</th>
-              <th className="text-right">{isOwner ? 'Ihr Anteil / Monat' : 'Brutto / Jahr (Hochr.)'}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {PIPELINE.map((p) => (
-              <tr key={p.city}>
-                <td className="board-display" style={{ color: 'var(--navy)' }}>
-                  {p.city}
-                </td>
-                <td style={{ color: 'var(--slate)' }}>{p.buildingName}</td>
-                <td>
-                  <span className={`stage stage-${p.stage}`}>{STAGE_LABEL[p.stage]}</span>
-                </td>
-                <td className="text-right tabular-nums">{p.projectedKw} kW</td>
-                <td className="text-right tabular-nums" style={{ color: 'var(--ink)' }}>
-                  {isOwner ? ca(fmtEurFull(monthly(p.projectedKw))) : fmtEurFull(projectedMrr(p.projectedKw) * 12)}
-                </td>
+        <div style={{ maxHeight: 440, overflowY: 'auto' }}>
+          <table className="b-table w-full text-sm">
+            <thead>
+              <tr style={{ borderBottom: '1px solid var(--line)' }}>
+                <th className="text-left">Projekt</th>
+                <th className="text-left">Status</th>
+                <th className="text-right">Anschluss</th>
+                <th className="text-right">Rechen-kW</th>
+                <th className="text-right">{isOwner ? 'Ihr Anteil / Mt' : 'Brutto / Mt'}</th>
+                <th className="text-right">Aktion</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {sorted.map((p) => {
+                const on = addedSet.has(p.id);
+                return (
+                  <tr key={p.id} style={{ background: on ? 'rgba(169,132,63,.08)' : undefined }}>
+                    <td>
+                      <div className="board-display" style={{ color: 'var(--navy)' }}>{p.name}</div>
+                      <div className="text-xs" style={{ color: 'var(--slate)' }}>{p.ort}</div>
+                    </td>
+                    <td>
+                      <span
+                        className="stage"
+                        style={{
+                          background: p.built ? 'rgba(0,26,69,.1)' : 'rgba(124,117,104,.14)',
+                          color: p.built ? 'var(--navy)' : 'var(--slate)',
+                        }}
+                      >
+                        {p.status}
+                      </span>
+                    </td>
+                    <td className="text-right tabular-nums">{fmtNum(p.connectionKw)} kW</td>
+                    <td className="text-right tabular-nums" style={{ color: 'var(--slate)' }}>{fmtNum(portfolioComputeKw(p))} kW</td>
+                    <td className="text-right tabular-nums" style={{ color: 'var(--ink)' }}>{ca(fmtEurFull(shown(portfolioMrr(p))))}</td>
+                    <td className="text-right">
+                      <button
+                        className={on ? 'b-btn-primary' : 'b-btn-ghost'}
+                        style={{ padding: '0.3rem 0.7rem', fontSize: '0.75rem' }}
+                        onClick={() => onToggleAdd(p.id)}
+                      >
+                        {on ? '✓ in Flotte' : '+ Flotte'}
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
+      <p className="mt-2 text-xs" style={{ color: 'var(--slate)' }}>
+        Rechen-kW = {pct(ASSUMPTIONS.computeHeadroomPct)}% des Netzanschlusses (nutzbare, flexible
+        Last) — Schätzung, keine netzbestätigten Werte.
+      </p>
     </section>
   );
 }

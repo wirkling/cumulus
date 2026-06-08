@@ -1,0 +1,51 @@
+// Auto-generated from Tamax_Projekte_Adressen_Netzanschluss.xlsx (June 2026).
+// connectionKw = estimated max grid connection (all-electric assumption). Coordinates are city-level.
+export interface PortfolioSite {
+  id: number; name: string; typ: string; status: string; ort: string;
+  connectionKw: number; built: boolean; lat: number; lng: number;
+}
+
+export const TAMAX_PORTFOLIO: PortfolioSite[] = [
+  { id: 1, name: 'Straße der AWG', typ: 'Baulandentwicklung (Wassergrundstück, MFH)', status: 'Abgeschlossen', ort: 'Königs Wusterhausen', connectionKw: 100, built: true, lat: 52.3, lng: 13.63 },
+  { id: 2, name: 'Schulzendorfer Straße', typ: 'Bestandssanierung Wohnen', status: 'Abgeschlossen', ort: 'Berlin-Mitte (Wedding)', connectionKw: 126, built: true, lat: 52.55, lng: 13.36 },
+  { id: 3, name: 'Am Lindenweg', typ: 'Wohngebiet (Neubaugebiet)', status: 'In Planung', ort: 'Werneuchen', connectionKw: 480, built: false, lat: 52.63, lng: 13.74 },
+  { id: 4, name: 'Schivelbeiner Straße', typ: 'Bestandssanierung Wohnen (Altbau)', status: 'Abgeschlossen', ort: 'Berlin-Prenzlauer Berg', connectionKw: 122, built: true, lat: 52.538, lng: 13.424 },
+  { id: 5, name: 'Wohngebiet am Weinberg', typ: 'Wohngebiet & Geschäftszentrum', status: 'Abgeschlossen', ort: 'Saarmund (Nuthetal)', connectionKw: 1640, built: true, lat: 52.3, lng: 13.1 },
+  { id: 6, name: 'Schönefeld Tower', typ: 'Hochhaus Büro/Hotel/Wohnen (28 Geschosse, ~110 m)', status: 'In Planung', ort: 'Schönefeld', connectionKw: 2925, built: false, lat: 52.39, lng: 13.51 },
+  { id: 7, name: 'Glienicker Straße', typ: 'Wohnbauprojekt (MFH)', status: 'Abgeschlossen', ort: 'Berlin-Köpenick', connectionKw: 184, built: true, lat: 52.445, lng: 13.575 },
+  { id: 8, name: 'Neue Bergsiedlung', typ: 'Wohnquartier (Geschossbau)', status: 'In Planung', ort: 'Luckenwalde', connectionKw: 340, built: false, lat: 52.09, lng: 13.17 },
+  { id: 9, name: 'Münchner Straße', typ: 'Baulandentwicklung Wohnen', status: 'In Planung', ort: 'Berlin-Lichtenrade', connectionKw: 100, built: false, lat: 52.398, lng: 13.402 },
+  { id: 10, name: 'Baugrund für 2 Einfamilienhäuser', typ: 'Baugrundstücke (Verkauf)', status: 'Im Vertrieb', ort: 'Eberswalde', connectionKw: 28, built: false, lat: 52.834, lng: 13.82 },
+  { id: 11, name: 'City Center', typ: 'Einzelhandelszentrum', status: 'Abgeschlossen', ort: 'Erkner', connectionKw: 990, built: true, lat: 52.42, lng: 13.752 },
+  { id: 12, name: 'Fröbelstraße-Uferpromenade', typ: 'Gastronomie', status: 'In Planung', ort: 'Erkner', connectionKw: 123, built: false, lat: 52.42, lng: 13.752 },
+  { id: 13, name: 'Gartensiedlung', typ: 'Wohnquartier (88 Landhäuser/EFH)', status: 'Im Bau', ort: 'Schönwalde-Glien', connectionKw: 704, built: true, lat: 52.63, lng: 13.13 },
+  { id: 14, name: 'Zur Stadt Leipzig', typ: 'Geschossbau Wohnen/Gewerbe', status: 'In Planung', ort: 'Saarmund (Nuthetal)', connectionKw: 160, built: false, lat: 52.3, lng: 13.1 },
+  { id: 15, name: 'Büro- und Verwaltungsgebäude', typ: 'Büro-/Verwaltungsobjekt', status: 'Im Bestand', ort: 'Schwedt/Oder', connectionKw: 127, built: true, lat: 53.06, lng: 14.28 },
+  { id: 16, name: 'Galileo-Galilei-Straße', typ: 'Wohnen klassisch + 65+ + Pflege', status: 'In Planung', ort: 'Schwerin', connectionKw: 728, built: false, lat: 53.63, lng: 11.41 },
+  { id: 17, name: 'Ärztehaus', typ: 'Bestandsimmobilie (Medizin/Gewerbe)', status: 'Im Bestand', ort: 'Eberswalde', connectionKw: 37, built: true, lat: 52.834, lng: 13.82 },
+  { id: 18, name: 'Quartier am Voßkanal', typ: 'Wohn- und Ferienquartier', status: 'In Planung', ort: 'Zehdenick', connectionKw: 1000, built: false, lat: 52.98, lng: 13.33 },
+  { id: 19, name: 'Baugrund für Einfamilienhäuser', typ: 'Baugrundstücke (Verkauf)', status: 'In Planung', ort: 'Brieselang', connectionKw: 112, built: false, lat: 52.585, lng: 12.99 },
+  { id: 20, name: 'Quartier Angergrund', typ: 'Quartiersentwicklung (~650 WE)', status: 'In Planung', ort: 'Potsdam-Babelsberg', connectionKw: 1950, built: false, lat: 52.4, lng: 13.09 },
+  { id: 21, name: 'Woltersdorfer Straße', typ: 'Baulandentwicklung Wohnen', status: 'In Planung', ort: 'Schöneiche bei Berlin', connectionKw: 160, built: false, lat: 52.47, lng: 13.69 },
+  { id: 23, name: 'Gewerbehof Fennpfuhlweg', typ: 'Gewerbehof', status: 'Im Bestand', ort: 'Berlin-Lichtenberg', connectionKw: 68, built: true, lat: 52.516, lng: 13.499 },
+  { id: 24, name: 'Gürtelstraße', typ: 'Wohnbauprojekt (52 WE)', status: 'Abgeschlossen', ort: 'Berlin-Friedrichshain', connectionKw: 182, built: true, lat: 52.515, lng: 13.454 },
+  { id: 25, name: 'Krummenseer Chaussee', typ: 'Baulandentwicklung Wohnen (EFH/Doppel)', status: 'Abgeschlossen', ort: 'Werneuchen-Seefeld', connectionKw: 150, built: true, lat: 52.66, lng: 13.7 },
+  { id: 26, name: 'Maisons Lenné', typ: '4 Doppelhaushälften', status: 'Im Vertrieb', ort: 'Potsdam-Bornstedt', connectionKw: 48, built: false, lat: 52.42, lng: 13.04 },
+  { id: 28, name: 'Wohn- und Gewerbequartier Große Straße', typ: 'Wohn- und Gewerbequartier', status: 'In Planung', ort: 'Strausberg', connectionKw: 270, built: false, lat: 52.58, lng: 13.88 },
+  { id: 29, name: 'Dammstraße', typ: 'Baulandentwicklung Wohnen (6 Grundstücke)', status: 'Im Vertrieb', ort: 'Brieselang', connectionKw: 84, built: false, lat: 52.585, lng: 12.99 },
+  { id: 30, name: 'Augsburger Straße', typ: 'Bestandssanierung/Wohnen (55 WE)', status: 'Abgeschlossen', ort: 'Berlin-Lichtenrade', connectionKw: 192, built: true, lat: 52.398, lng: 13.402 },
+  { id: 31, name: 'Schkeuditzer Straße', typ: 'Geschossbau Wohnen (~124 WE)', status: 'In Planung', ort: 'Berlin-Hellersdorf', connectionKw: 409, built: false, lat: 52.537, lng: 13.606 },
+  { id: 32, name: 'Seeviertel Kyritz', typ: 'Wohnquartier (~160 Einheiten)', status: 'In Planung', ort: 'Kyritz', connectionKw: 1120, built: false, lat: 52.94, lng: 12.4 },
+  { id: 33, name: 'Türrschmidtstraße', typ: 'Geschossbau Wohnen (Infill)', status: 'In Planung', ort: 'Berlin-Lichtenberg', connectionKw: 50, built: false, lat: 52.516, lng: 13.499 },
+  { id: 34, name: 'Baugrund für 6 Einfamilienhäuser', typ: 'Baugrundstücke (Verkauf)', status: 'Im Vertrieb', ort: 'Brieselang', connectionKw: 84, built: false, lat: 52.585, lng: 12.99 },
+  { id: 35, name: 'Victoria-Quartier', typ: 'Einzelhandels- & Dienstleistungszentrum', status: 'In Planung', ort: 'Velten', connectionKw: 240, built: false, lat: 52.69, lng: 13.18 },
+  { id: 36, name: 'Wohnanlage Akazienstraße', typ: 'Geschossbau Wohnen (32 WE)', status: 'Abgeschlossen', ort: 'Werneuchen-Seefeld', connectionKw: 128, built: true, lat: 52.66, lng: 13.7 },
+  { id: 37, name: 'Pestalozzistraße', typ: 'Wohnbauprojekt (MFH)', status: 'Abgeschlossen', ort: 'Berlin-Köpenick', connectionKw: 245, built: true, lat: 52.445, lng: 13.575 },
+  { id: 38, name: 'Am Weinberg', typ: 'Baulandentwicklung Wohnen', status: 'In Planung', ort: 'Wustrau-Altfriesack', connectionKw: 162, built: false, lat: 52.9, lng: 12.7 },
+  { id: 39, name: 'Allianzdreieck', typ: 'Seniorenresidenz + Betreutes Wohnen (182 Plätze)', status: 'In Planung', ort: 'Frankfurt (Oder)', connectionKw: 560, built: false, lat: 52.34, lng: 14.55 },
+  { id: 40, name: 'Neue Bergsiedlung – 1. Bauabschnitt', typ: 'Baulandentwicklung Wohnen (EFH)', status: 'Abgeschlossen', ort: 'Luckenwalde', connectionKw: 252, built: true, lat: 52.09, lng: 13.17 },
+  { id: 41, name: 'Seestücke', typ: 'Eigenheimsiedlung (145 Parzellen)', status: 'Abgeschlossen', ort: 'Ludwigsfelde-Siethen', connectionKw: 1160, built: true, lat: 52.29, lng: 13.19 },
+  { id: 43, name: 'Hinter dem Rheinsberger Tor', typ: 'Baulandentwicklung Wohnen oder Gewerbe', status: 'In Planung', ort: 'Neuruppin', connectionKw: 160, built: false, lat: 52.92, lng: 12.8 },
+  { id: 44, name: 'Baugrund für 8 Einfamilienhäuser', typ: 'Baugrundstücke (Verkauf)', status: 'Im Vertrieb', ort: 'Luckenwalde', connectionKw: 112, built: false, lat: 52.09, lng: 13.17 },
+  { id: 45, name: 'Akazienstraße', typ: 'Wohngebiet (Neubaugebiet)', status: 'In Planung', ort: 'Fredersdorf-Vogelsdorf', connectionKw: 280, built: false, lat: 52.535, lng: 13.75 },
+];

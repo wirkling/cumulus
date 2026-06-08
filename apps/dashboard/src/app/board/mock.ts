@@ -6,6 +6,7 @@
  * id. Anchored on GPU/target economics — all figures are "geschätzt" (preview).
  */
 import type { NodeSummary } from '@cumulus/shared-types';
+import type { PortfolioSite } from './tamax-portfolio';
 
 // ── single source of truth ───────────────────────────────────────────────────
 export const ASSUMPTIONS = {
@@ -20,6 +21,11 @@ export const ASSUMPTIONS = {
   energyPriceEurKwh: 0.22, // €/kWh (adjustable)
   avgSolarPct: 18, // avg on-site generation share
   hostSharePct: 0.3, // RE host's share of gross compute revenue (adjustable)
+  // Share of a building's MAX grid connection realistically usable as flexible /
+  // curtailable compute load (the connection is sized for the building's own
+  // all-electric peak; only the headroom hosts compute). KEY assumption to
+  // calibrate with grid knowledge.
+  computeHeadroomPct: 0.2,
 };
 const HOURS_PER_MONTH = 730;
 /** Derived: every €/kW figure on the board uses this one rate (≈ €355). */
@@ -205,6 +211,44 @@ export function boardKpis(
 
 /** The RE host's share of a gross revenue figure (for per-site / pipeline). */
 export const hostShareOf = (gross: number, pct: number): number => Math.round(gross * pct);
+
+// ── TAMAX portfolio → compute potential ──────────────────────────────────────
+/** Compute capacity (kW) realistically hostable in a building = headroom × its
+ * max grid connection. */
+export const portfolioComputeKw = (p: PortfolioSite): number =>
+  Math.round(p.connectionKw * ASSUMPTIONS.computeHeadroomPct);
+
+/** Gross monthly compute revenue if this building were activated. */
+export const portfolioMrr = (p: PortfolioSite): number =>
+  Math.round(portfolioComputeKw(p) * revPerKwMonth);
+
+/** Turn an "added" portfolio building into a synthetic live Site for the KPIs
+ * (runs at target utilization, GPU economics). */
+export function portfolioToSite(p: PortfolioSite): Site {
+  const capacityKw = portfolioComputeKw(p);
+  const util = ASSUMPTIONS.targetUtilizationPct;
+  const powerDrawKw = +(capacityKw * (0.32 + (util / 100) * 0.62)).toFixed(1);
+  const solarPct = ASSUMPTIONS.avgSolarPct;
+  const gridDrawKw = +(powerDrawKw * (1 - solarPct / 100)).toFixed(1);
+  return {
+    id: 'tamax-' + p.id,
+    name: p.name,
+    buildingName: `${p.ort} · ${p.name}`,
+    siteType: 'Portfolio',
+    city: p.ort,
+    lat: p.lat,
+    lng: p.lng,
+    online: true,
+    kind: 'gpu',
+    capacityKw,
+    powerDrawKw,
+    gridDrawKw,
+    solarPct,
+    utilizationPct: util,
+    monthlyRevenueEur: Math.round((capacityKw / ASSUMPTIONS.kwPerGpu) * ASSUMPTIONS.revPerGpuMonth),
+    uptimePct: 99.5,
+  };
+}
 
 // ── expansion pipeline (revenue derived, not hardcoded) ──────────────────────
 export type PipelineStage = 'signed' | 'survey' | 'candidate';
