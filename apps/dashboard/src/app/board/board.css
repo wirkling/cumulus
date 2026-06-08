@@ -1,0 +1,98 @@
+/* Board view — themed to TAMAX corporate identity (tamax.de):
+   deep navy #001a45 + warm sand #cabead on soft paper, classical serif display
+   (Spectral ≈ their "Janson") + grotesque body (Archivo ≈ their "Diatype").
+   All scoped under .board so it overrides the dark operator theme. */
+
+.board {
+  --navy: #001a45;
+  --navy-deep: #00102c;
+  --sand: #cabead;
+  --sand-soft: #e7ded0;
+  --gold: #a9843f;
+  --ink: #161a22;
+  --slate: #7c7568;
+  --paper: #f6f4ef;
+  --card: #ffffff;
+  --line: #e7e0d3;
+
+  color-scheme: light;
+  min-height: 100vh;
+  position: relative;
+  color: var(--ink);
+  background:
+    radial-gradient(1100px 560px at 82% -12%, #fdfbf6 0%, rgba(253, 251, 246, 0) 60%),
+    linear-gradient(180deg, #f7f5f0 0%, #eeebe2 100%);
+  font-family: var(--font-archivo), 'Archivo', system-ui, sans-serif;
+  font-feature-settings: 'tnum' 1, 'ss01' 1;
+  -webkit-font-smoothing: antialiased;
+}
+/* faint paper grain */
+.board::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.05;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+.board > * { position: relative; z-index: 1; }
+
+.board-display {
+  font-family: var(--font-spectral), Georgia, 'Times New Roman', serif;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* ── masthead ─────────────────────────────────────────────────────────────── */
+.b-wordmark { font-family: var(--font-spectral), Georgia, serif; letter-spacing: 0.01em; }
+.b-rule { height: 1px; background: linear-gradient(90deg, var(--navy) 0%, var(--sand) 40%, transparent 100%); }
+
+/* ── cards ────────────────────────────────────────────────────────────────── */
+.b-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: 0 1px 0 rgba(0, 26, 69, 0.03), 0 14px 34px -24px rgba(0, 26, 69, 0.4);
+}
+.b-card-pad { padding: 1.1rem 1.2rem; }
+
+.b-kpi-label { font-size: 0.66rem; letter-spacing: 0.13em; text-transform: uppercase; color: var(--slate); }
+.b-kpi-val { font-family: var(--font-spectral), Georgia, serif; color: var(--navy); line-height: 1; letter-spacing: -0.01em; }
+.b-delta-up { color: var(--gold); }
+
+/* ── segmented role switcher ──────────────────────────────────────────────── */
+.seg { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--sand-soft); border: 1px solid var(--line); }
+.seg button { border: 0; background: transparent; padding: 0.42rem 1.05rem; border-radius: 999px; font-size: 0.82rem; font-weight: 600; color: var(--slate); cursor: pointer; transition: all 0.18s ease; white-space: nowrap; }
+.seg button:hover { color: var(--navy); }
+.seg button.active { background: var(--navy); color: #f3eee2; box-shadow: 0 6px 16px -8px rgba(0, 26, 69, 0.7); }
+
+/* ── stage pills (pipeline) ───────────────────────────────────────────────── */
+.stage { display: inline-flex; align-items: center; gap: 0.35rem; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; padding: 0.18rem 0.5rem; border-radius: 999px; }
+.stage-signed { background: rgba(0, 26, 69, 0.1); color: var(--navy); }
+.stage-survey { background: rgba(169, 132, 63, 0.16); color: var(--gold); }
+.stage-candidate { background: rgba(124, 117, 104, 0.14); color: var(--slate); }
+.live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--gold); box-shadow: 0 0 0 0 rgba(169, 132, 63, 0.6); animation: blip 2.2s ease-out infinite; }
+@keyframes blip { 0% { box-shadow: 0 0 0 0 rgba(169, 132, 63, 0.55); } 70%, 100% { box-shadow: 0 0 0 7px rgba(169, 132, 63, 0); } }
+
+/* ── atlas (map) ──────────────────────────────────────────────────────────── */
+.atlas-frame { background: linear-gradient(180deg, #fbfaf6 0%, #f1eee6 100%); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; }
+.atlas-dot { cursor: pointer; transition: r 0.2s ease; }
+.atlas-pulse { transform-origin: center; transform-box: fill-box; animation: ring 2.6s ease-out infinite; }
+@keyframes ring { 0% { opacity: 0.55; transform: scale(0.6); } 80%, 100% { opacity: 0; transform: scale(2.4); } }
+
+/* ── reveal on load (staggered) ───────────────────────────────────────────── */
+.reveal { opacity: 0; animation: rise 0.65s cubic-bezier(0.22, 0.61, 0.36, 1) forwards; animation-delay: var(--d, 0ms); }
+@keyframes rise { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+@media (prefers-reduced-motion: reduce) { .reveal { animation: none; opacity: 1; } .live-dot, .atlas-pulse { animation: none; } }
+
+/* ── site drawer ──────────────────────────────────────────────────────────── */
+.scrim { position: fixed; inset: 0; background: rgba(0, 16, 44, 0.32); backdrop-filter: blur(2px); z-index: 40; opacity: 0; animation: fade 0.25s forwards; }
+@keyframes fade { to { opacity: 1; } }
+.drawer { position: fixed; top: 0; right: 0; height: 100vh; width: min(440px, 92vw); background: var(--paper); border-left: 1px solid var(--line); box-shadow: -30px 0 60px -30px rgba(0, 16, 44, 0.5); z-index: 41; overflow-y: auto; animation: slideIn 0.32s cubic-bezier(0.22, 0.61, 0.36, 1); }
+@keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+.b-table th { color: var(--slate); font-weight: 600; }
+.b-table td, .b-table th { padding: 0.5rem 0.6rem; }
+.b-table tbody tr { border-top: 1px solid var(--line); }
+.b-link { color: var(--navy); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
