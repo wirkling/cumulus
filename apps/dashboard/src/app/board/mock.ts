@@ -9,7 +9,9 @@ import type { NodeSummary } from '@cumulus/shared-types';
 
 // ── single source of truth ───────────────────────────────────────────────────
 export const ASSUMPTIONS = {
-  revPerGpuMonth: 320, // est. €/GPU/month (Model A/B blended) — the anchor
+  // Conservative base: Vast/RunPod 4090 ≈ $0.40–0.50/h → ~$207–260/mo at 72%
+  // util; after platform fee / FX / idle, a conservative €/GPU/mo is ~220–300.
+  revPerGpuMonth: 260, // est. €/GPU/month (Model A/B blended, conservative) — the anchor
   kwPerGpu: 0.9, // GPU + cooling/overhead (PUE ≈ 1.3)
   sqmPerGpu: 0.5, // effective m²/GPU in a building retrofit (rack + aisle + cooling/electrical)
   targetUtilizationPct: 72, // assumed steady-state utilization
@@ -147,7 +149,11 @@ export interface BoardKpis {
   mrrTrend: number[];
 }
 
-export function boardKpis(sites: Site[], customers: number): BoardKpis {
+export function boardKpis(
+  sites: Site[],
+  customers: number,
+  energyPriceEurKwh: number = ASSUMPTIONS.energyPriceEurKwh,
+): BoardKpis {
   const live = sites.filter((s) => s.online);
   const mrr = sites.reduce((a, s) => a + s.monthlyRevenueEur, 0);
   const cap = sites.reduce((a, s) => a + s.capacityKw, 0);
@@ -156,8 +162,8 @@ export function boardKpis(sites: Site[], customers: number): BoardKpis {
   const avgUtil = live.length
     ? Math.round(live.reduce((a, s) => a + s.utilizationPct, 0) / live.length)
     : 0;
-  // Gross margin derives from the energy assumption: only grid power is paid for.
-  const energyCost = Math.round(grid * HOURS_PER_MONTH * ASSUMPTIONS.energyPriceEurKwh);
+  // Gross margin derives from the (adjustable) energy price: only grid power is paid.
+  const energyCost = Math.round(grid * HOURS_PER_MONTH * energyPriceEurKwh);
   const grossMargin = mrr > 0 ? Math.round((1 - energyCost / mrr) * 100) : 0;
   // 6-month ramp ending at the (derived) current MRR.
   const r = rng('mrr-trend');

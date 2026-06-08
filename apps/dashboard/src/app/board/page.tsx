@@ -44,9 +44,13 @@ export default function BoardPage() {
   const [role, setRole] = useState<Role>('owner');
   const [selId, setSelId] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
+  const [energyPrice, setEnergyPrice] = useState(ASSUMPTIONS.energyPriceEurKwh);
 
   const sites = useMemo(() => (nodes ?? []).map(siteFromNode), [nodes]);
-  const kpis = useMemo(() => boardKpis(sites, customers?.length ?? 0), [sites, customers]);
+  const kpis = useMemo(
+    () => boardKpis(sites, customers?.length ?? 0, energyPrice),
+    [sites, customers, energyPrice],
+  );
   const selected = sites.find((s) => s.id === selId) ?? null;
 
   if (!nodes) {
@@ -170,6 +174,31 @@ export default function BoardPage() {
                 <span style={{ width: 14, height: 0, borderTop: '2px dashed var(--gold)', display: 'inline-block' }} /> aus Netz
               </span>
             </div>
+
+            {/* Adjustable electricity price → flows into energy cost + margin */}
+            <div className="mt-3 pt-3" style={{ borderTop: '1px solid var(--line)' }}>
+              <div className="flex items-center justify-between">
+                <span className="b-kpi-label">Strompreis</span>
+                <span className="board-display text-sm" style={{ color: 'var(--navy)' }}>
+                  {energyPrice.toFixed(2).replace('.', ',')} €/kWh
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0.05}
+                max={0.6}
+                step={0.01}
+                value={energyPrice}
+                onChange={(e) => setEnergyPrice(parseFloat(e.target.value))}
+                className="mt-1 w-full"
+                style={{ accentColor: 'var(--navy)' }}
+                aria-label="Strompreis in Euro pro kWh"
+              />
+              <div className="mt-1 text-xs" style={{ color: 'var(--slate)' }}>
+                Energiekosten {ca(fmtEurFull(kpis.energyCostEur))}/Monat · Bruttomarge{' '}
+                <strong style={{ color: 'var(--ink)' }}>{kpis.grossMarginPct}%</strong>
+              </div>
+            </div>
           </div>
 
           {/* Role headline */}
@@ -218,7 +247,7 @@ export default function BoardPage() {
 
       <Pipeline role={role} />
 
-      <Assumptions />
+      <Assumptions energyPrice={energyPrice} />
 
       <footer className="mt-8 text-xs leading-relaxed" style={{ color: 'var(--slate)' }}>
         Standorte und Status sind <strong style={{ color: 'var(--ink)' }}>live</strong> aus der
@@ -319,15 +348,15 @@ function ExecSummary({ kpis }: { kpis: ReturnType<typeof boardKpis> }) {
 }
 
 // ── Assumptions (single source of truth, made transparent) ───────────────────
-function Assumptions() {
+function Assumptions({ energyPrice }: { energyPrice: number }) {
   const de = (n: number) => String(n).replace('.', ',');
   const rows: [string, string][] = [
-    ['Ertrag je GPU / Monat (Model A/B)', ca(fmtEurFull(ASSUMPTIONS.revPerGpuMonth))],
+    ['Ertrag je GPU / Monat (Model A/B, konservativ)', ca(fmtEurFull(ASSUMPTIONS.revPerGpuMonth))],
     ['Daraus: Ertrag je kW / Monat', ca(fmtEurFull(Math.round(revPerKwMonth)))],
     ['Leistung je GPU (inkl. Kühlung, PUE ≈ 1,3)', `${de(ASSUMPTIONS.kwPerGpu)} kW`],
     ['Fläche je GPU (inkl. Gang/Technik)', `${de(ASSUMPTIONS.sqmPerGpu)} m²`],
     ['Ziel-Auslastung', `${ASSUMPTIONS.targetUtilizationPct}%`],
-    ['Strompreis', `${de(ASSUMPTIONS.energyPriceEurKwh)} €/kWh`],
+    ['Strompreis (anpassbar)', `${energyPrice.toFixed(2).replace('.', ',')} €/kWh`],
     ['Eigenstrom (Solar), Ø', `${ASSUMPTIONS.avgSolarPct}%`],
   ];
   return (
