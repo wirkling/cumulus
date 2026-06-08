@@ -45,6 +45,16 @@
 }
 
 /* ── masthead ─────────────────────────────────────────────────────────────── */
+.board-sticky {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  margin: 0 -1.5rem;
+  padding: 0.85rem 1.5rem;
+  background: rgba(247, 245, 240, 0.92);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
 .b-wordmark { font-family: var(--font-spectral), Georgia, serif; letter-spacing: 0.01em; }
 .b-rule { height: 1px; background: linear-gradient(90deg, var(--navy) 0%, var(--sand) 40%, transparent 100%); }
 

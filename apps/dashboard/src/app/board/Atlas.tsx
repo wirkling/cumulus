@@ -31,14 +31,14 @@ export function Atlas({
   sites,
   portfolio,
   added,
-  onToggleAdd,
+  onPreview,
   selectedId,
   onSelect,
 }: {
   sites: Site[];
   portfolio: PortfolioSite[];
   added: number[];
-  onToggleAdd: (id: number) => void;
+  onPreview: (id: number) => void;
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
@@ -63,7 +63,7 @@ export function Atlas({
         const on = addedSet.has(p.id);
         const r = 4 + Math.min(6, p.connectionKw / 250);
         return (
-          <g key={`p${p.id}`} style={{ cursor: 'pointer' }} onClick={() => onToggleAdd(p.id)}>
+          <g key={`p${p.id}`} style={{ cursor: 'pointer' }} onClick={() => onPreview(p.id)}>
             <circle
               cx={x}
               cy={y}

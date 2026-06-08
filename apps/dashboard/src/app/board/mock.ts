@@ -244,13 +244,14 @@ export const portfolioComputeKw = (p: PortfolioSite): number =>
 export const portfolioMrr = (p: PortfolioSite): number =>
   Math.round(portfolioComputeKw(p) * revPerKwMonth);
 
-/** Turn an "added" portfolio building into a synthetic live Site for the KPIs
- * (runs at target utilization, GPU economics). */
+/** Turn an "added" portfolio building into a synthetic live Site for the KPIs.
+ * Utilization/solar are seeded per building so each site's graphs differ. */
 export function portfolioToSite(p: PortfolioSite): Site {
+  const r = rng('tamax-' + p.id);
   const capacityKw = portfolioComputeKw(p);
-  const util = ASSUMPTIONS.targetUtilizationPct;
+  const util = Math.min(95, Math.round(ASSUMPTIONS.targetUtilizationPct * (0.8 + r() * 0.32)));
   const powerDrawKw = +(capacityKw * (0.32 + (util / 100) * 0.62)).toFixed(1);
-  const solarPct = ASSUMPTIONS.avgSolarPct;
+  const solarPct = r() < 0.7 ? Math.round(ASSUMPTIONS.avgSolarPct * (0.5 + r() * 1.4)) : 0;
   const gridDrawKw = +(powerDrawKw * (1 - solarPct / 100)).toFixed(1);
   return {
     id: 'tamax-' + p.id,
@@ -267,7 +268,34 @@ export function portfolioToSite(p: PortfolioSite): Site {
     gridDrawKw,
     solarPct,
     utilizationPct: util,
-    monthlyRevenueEur: Math.round((capacityKw / ASSUMPTIONS.kwPerGpu) * ASSUMPTIONS.revPerGpuMonth),
+    monthlyRevenueEur: Math.round(
+      (capacityKw / ASSUMPTIONS.kwPerGpu) * ASSUMPTIONS.revPerGpuMonth * (util / ASSUMPTIONS.targetUtilizationPct),
+    ),
+    uptimePct: +(99.2 + r() * 0.79).toFixed(2),
+  };
+}
+
+/** A manually-added "own area" (from the Immobilie-hinzufügen calculator). */
+export function customSiteFromKw(n: number, computeKw: number, label: string): Site {
+  const util = ASSUMPTIONS.targetUtilizationPct;
+  const powerDrawKw = +(computeKw * (0.32 + (util / 100) * 0.62)).toFixed(1);
+  const solarPct = ASSUMPTIONS.avgSolarPct;
+  return {
+    id: 'custom-' + n,
+    name: label,
+    buildingName: label,
+    siteType: 'Eigene Fläche',
+    city: label,
+    lat: 52.3 + (n % 5) * 0.05,
+    lng: 13.2 + (n % 5) * 0.05,
+    online: true,
+    kind: 'gpu',
+    capacityKw: computeKw,
+    powerDrawKw,
+    gridDrawKw: +(powerDrawKw * (1 - solarPct / 100)).toFixed(1),
+    solarPct,
+    utilizationPct: util,
+    monthlyRevenueEur: Math.round((computeKw / ASSUMPTIONS.kwPerGpu) * ASSUMPTIONS.revPerGpuMonth),
     uptimePct: 99.5,
   };
 }
