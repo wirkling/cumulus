@@ -413,11 +413,11 @@ function Pipeline({ role }: { role: Role }) {
 // ── Property potential calculator ────────────────────────────────────────────
 function PropertyModal({ onClose }: { onClose: () => void }) {
   const [sqm, setSqm] = useState('');
-  const [mw, setMw] = useState('');
+  const [kw, setKw] = useState('');
   const sqmN = parseFloat(sqm) || 0;
-  const mwN = parseFloat(mw) || 0;
-  const est = useMemo(() => estimateProperty(sqmN, mwN), [sqmN, mwN]);
-  const ready = sqmN > 0 && mwN > 0;
+  const kwN = parseFloat(kw) || 0;
+  const est = useMemo(() => estimateProperty(sqmN, kwN), [sqmN, kwN]);
+  const ready = sqmN > 0 && kwN > 0;
 
   return (
     <div className="b-modal">
@@ -441,8 +441,8 @@ function PropertyModal({ onClose }: { onClose: () => void }) {
             <input className="b-input" type="number" min={0} placeholder="z. B. 80" value={sqm} onChange={(e) => setSqm(e.target.value)} />
           </label>
           <label>
-            <span className="b-kpi-label mb-1 block">Anschlussleistung (MW)</span>
-            <input className="b-input" type="number" min={0} step={0.05} placeholder="z. B. 0,2" value={mw} onChange={(e) => setMw(e.target.value)} />
+            <span className="b-kpi-label mb-1 block">Anschlussleistung (kW)</span>
+            <input className="b-input" type="number" min={0} step={5} placeholder="z. B. 120" value={kw} onChange={(e) => setKw(e.target.value)} />
           </label>
         </div>
 

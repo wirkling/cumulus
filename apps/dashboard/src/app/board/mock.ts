@@ -231,8 +231,8 @@ export interface PropertyEstimate {
   capacityKw: number;
 }
 
-export function estimateProperty(sqm: number, mw: number): PropertyEstimate {
-  const byPower = Math.floor(((mw || 0) * 1000) / ASSUMPTIONS.kwPerGpu);
+export function estimateProperty(sqm: number, kw: number): PropertyEstimate {
+  const byPower = Math.floor((kw || 0) / ASSUMPTIONS.kwPerGpu);
   const bySpace = Math.floor((sqm || 0) / ASSUMPTIONS.sqmPerGpu);
   const gpus = Math.max(0, Math.min(byPower, bySpace));
   return {
