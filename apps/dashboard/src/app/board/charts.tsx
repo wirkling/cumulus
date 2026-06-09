@@ -102,45 +102,61 @@ export function GrowthChart({
   const id = useId().replace(/:/g, '');
   const W = 520;
   const H = height;
-  const pad = { l: 8, r: 8, t: 16, b: 22 };
+  const pad = { l: 8, r: 8, t: 16, b: 10 };
   const plotW = W - pad.l - pad.r;
   const plotH = H - pad.t - pad.b;
+  const baseY = pad.t + plotH;
   const max = Math.max(1, ...data) * 1.14;
-  const xAt = (i: number) => pad.l + (data.length <= 1 ? plotW / 2 : (i / (data.length - 1)) * plotW);
+  const months = data.length;
+  const xAt = (i: number) => pad.l + (months <= 1 ? plotW / 2 : (i / (months - 1)) * plotW);
   const yAt = (v: number) => pad.t + plotH - (v / max) * plotH;
   const pts: [number, number][] = data.map((v, i) => [xAt(i), yAt(v)]);
   const line = smooth(pts);
-  const area = `${line} L ${pad.l + plotW} ${pad.t + plotH} L ${pad.l} ${pad.t + plotH} Z`;
+  const area = `${line} L ${pad.l + plotW} ${baseY} L ${pad.l} ${baseY} Z`;
   const last = pts[pts.length - 1] ?? [pad.l + plotW, yAt(0)];
-  const ni = Math.max(0, Math.min(data.length - 1, nowIndex));
+  const ni = Math.max(0, Math.min(months - 1, nowIndex));
   const nowX = xAt(ni);
   const nowPt = pts[ni] ?? last;
   const yearTicks: number[] = [];
-  for (let i = 0; i < data.length; i += 12) yearTicks.push(i);
+  for (let i = 0; i < months; i += 12) yearTicks.push(i);
+  const leftPct = (i: number) => (months <= 1 ? 50 : (i / (months - 1)) * 100);
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" preserveAspectRatio="none" style={{ height }}>
-      <defs>
-        <linearGradient id={`gg${id}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity={0.26} />
-          <stop offset="100%" stopColor={color} stopOpacity={0.02} />
-        </linearGradient>
-      </defs>
-      <line x1={pad.l} x2={W - pad.r} y1={pad.t + plotH * 0.5} y2={pad.t + plotH * 0.5} stroke="var(--line)" strokeWidth={1} strokeDasharray="2 4" />
-      <line x1={nowX} x2={nowX} y1={pad.t} y2={pad.t + plotH} stroke="var(--slate)" strokeWidth={1} strokeDasharray="3 3" opacity={0.7} />
-      <text x={nowX} y={pad.t - 4} textAnchor="middle" fontSize={9} fill="var(--slate)">heute</text>
-      <path d={area} fill={`url(#gg${id})`} />
-      <path d={line} fill="none" stroke={color} strokeWidth={2.25} strokeLinecap="round" />
-      <circle cx={nowPt[0]} cy={nowPt[1]} r={3} fill="var(--paper)" stroke="var(--slate)" strokeWidth={1.5} />
-      <circle cx={last[0]} cy={last[1]} r={3.5} fill="var(--paper)" stroke={color} strokeWidth={2.25} />
-      {yearTicks.map((i) => (
-        <text key={i} x={xAt(i)} y={H - 6} textAnchor="middle" fontSize={9} fill="var(--slate)">
-          {startYear + i / 12}
+    <div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" preserveAspectRatio="none" style={{ height }}>
+        <defs>
+          <linearGradient id={`gg${id}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={color} stopOpacity={0.26} />
+            <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <line x1={pad.l} x2={W - pad.r} y1={pad.t + plotH * 0.5} y2={pad.t + plotH * 0.5} stroke="var(--line)" strokeWidth={1} strokeDasharray="2 4" />
+        {/* x-axis (time) baseline + year tick marks */}
+        <line x1={pad.l} x2={W - pad.r} y1={baseY} y2={baseY} stroke="var(--line)" strokeWidth={1} />
+        {yearTicks.map((i) => (
+          <line key={i} x1={xAt(i)} x2={xAt(i)} y1={baseY} y2={baseY - 4} stroke="var(--line)" strokeWidth={1} />
+        ))}
+        <line x1={nowX} x2={nowX} y1={pad.t} y2={baseY} stroke="var(--slate)" strokeWidth={1} strokeDasharray="3 3" opacity={0.7} />
+        <text x={nowX} y={pad.t - 4} textAnchor="middle" fontSize={9} fill="var(--slate)">heute</text>
+        <path d={area} fill={`url(#gg${id})`} />
+        <path d={line} fill="none" stroke={color} strokeWidth={2.25} strokeLinecap="round" />
+        <circle cx={nowPt[0]} cy={nowPt[1]} r={3} fill="var(--paper)" stroke="var(--slate)" strokeWidth={1.5} />
+        <circle cx={last[0]} cy={last[1]} r={3.5} fill="var(--paper)" stroke={color} strokeWidth={2.25} />
+        <text x={W - pad.r} y={pad.t - 4} textAnchor="end" fontSize={11} fontWeight={600} fill={color}>
+          {fmt(data[data.length - 1] ?? 0)}
         </text>
-      ))}
-      <text x={W - pad.r} y={pad.t - 4} textAnchor="end" fontSize={11} fontWeight={600} fill={color}>
-        {fmt(data[data.length - 1] ?? 0)}
-      </text>
-    </svg>
+      </svg>
+      {/* crisp, non-distorted time axis (years; data is monthly) */}
+      <div style={{ position: 'relative', height: 14, marginTop: 2 }}>
+        {yearTicks.map((i) => (
+          <span
+            key={i}
+            style={{ position: 'absolute', left: `${leftPct(i)}%`, transform: 'translateX(-50%)', fontSize: '10px', color: 'var(--slate)', fontVariantNumeric: 'tabular-nums' }}
+          >
+            {startYear + i / 12}
+          </span>
+        ))}
+      </div>
+    </div>
   );
 }
 

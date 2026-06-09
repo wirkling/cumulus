@@ -428,8 +428,8 @@ export default function BoardPage() {
             </div>
             <div className="mt-1 text-xs" style={{ color: 'var(--slate)' }}>
               {isBoard
-                ? 'Rechenumsatz der Flotte über Zeit — jeder Standort rampt nach seinem Go-Live hoch. Das KPI-Band oben zeigt das Ziel bei vollem Betrieb.'
-                : 'Ihr Anteil wächst, sobald Ihre Flächen ans Netz gehen — weicher Hochlauf je Standort. Das KPI-Band oben zeigt das Ziel bei vollem Betrieb.'}
+                ? 'Monatlicher Rechenumsatz der Flotte — jeder Standort rampt nach seinem Go-Live weich hoch (Jan 2024 – Dez 2029). Das KPI-Band oben zeigt das Ziel bei vollem Betrieb.'
+                : 'Ihr monatlicher Anteil wächst, sobald Ihre Flächen ans Netz gehen — weicher Hochlauf je Standort (Jan 2024 – Dez 2029). Das KPI-Band oben zeigt das Ziel bei vollem Betrieb.'}
             </div>
           </div>
         </div>
