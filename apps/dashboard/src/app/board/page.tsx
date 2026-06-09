@@ -187,7 +187,7 @@ export default function BoardPage() {
 
   const kpiCards = !isBoard
     ? [
-        { l: 'Vergütung', v: ca(fmtEurFull(kpis.hostPayoutEur)), s: splitLabel },
+        { l: 'Vergütung', v: ca(fmtEurFull(kpis.hostPayoutEur)), s: `${splitLabel} / Mt` },
         { l: '+ Wärme-Gutschrift', v: ca(fmtEurFull(kpis.heatCreditEur)), s: 'Heizkosten gespart / Mt' },
         { l: '= Gesamtnutzen', v: ca(fmtEurFull(kpis.hostTotalBenefitEur)), s: 'weitgehend passiv / Mt' },
         { l: 'Aktive Standorte', v: String(kpis.liveSites), s: `${kpis.totalCapacityKw} kW Rechenlast` },
@@ -195,7 +195,7 @@ export default function BoardPage() {
     : [
         { l: 'Live-Betrieb', v: `${liveNodes}/${nodes.length} Knoten`, s: `${liveJobs} Anfragen orchestriert` },
         { l: 'Bruttoumsatz', v: ca(fmtEurFull(kpis.grossEur)), s: `≈ ${fmtEur(kpis.grossArrEur)} / Jahr` },
-        { l: 'Cumulus-Ergebnis', v: ca(fmtEurFull(kpis.cumulusResultEur)), s: 'nach Partner, Energie & Hardware' },
+        { l: 'Cumulus-Ergebnis', v: ca(fmtEurFull(kpis.cumulusResultEur)), s: 'nach Partner, Energie & Hardware / Mt' },
         { l: 'Amortisation', v: `${kpis.paybackMonths} Mt`, s: `bei ${ca(fmtEurFull(kpis.capexEur))} Capex` },
       ];
 
