@@ -367,12 +367,13 @@ export function candidateToSite(c: Candidate): Site {
   const powerDrawKw = +(capacityKw * (0.32 + (util / 100) * 0.62)).toFixed(1);
   const solarPct = r() < 0.7 ? Math.round(ASSUMPTIONS.avgSolarPct * (0.5 + r() * 1.4)) : 0;
   const gridDrawKw = +(powerDrawKw * (1 - solarPct / 100)).toFixed(1);
+  const label = c.name || 'Neues Projekt';
   return {
     id: c.devId + '-' + c.id,
-    name: c.name,
-    buildingName: `${c.ort} · ${c.name}`,
+    name: label,
+    buildingName: c.ort && c.ort !== c.name ? `${c.ort} · ${c.name}` : c.typ || label,
     siteType: 'Portfolio',
-    city: c.ort,
+    city: c.ort || label,
     lat: c.lat,
     lng: c.lng,
     online: true,
@@ -387,6 +388,38 @@ export function candidateToSite(c: Candidate): Site {
     ),
     uptimePct: +(99.2 + r() * 0.79).toFixed(2),
     goLiveYear: c.goLive,
+  };
+}
+
+/** A user-entered ("Excel-like") project row before it becomes a Candidate. */
+export interface CustomDraft {
+  key: string; // `custom:${devId}:${n}` — globally unique, stable
+  devId: string;
+  n: number; // monotonic seq (→ a non-colliding numeric id)
+  name: string;
+  status: string;
+  goLive: number;
+  connectionKw: number;
+}
+
+/** Turn a user-entered draft into a Candidate (same shape as portfolio sites),
+ * so it flows through the table, map, fleet and KPIs identically. */
+export function customToCandidate(d: CustomDraft, center: { lat: number; lng: number }): Candidate {
+  return {
+    key: d.key,
+    devId: d.devId,
+    id: 100000 + d.n, // offset well clear of real portfolio ids
+    name: d.name, // raw (may be empty → the table input shows a placeholder)
+    ort: '',
+    typ: 'Eigenes Projekt',
+    status: d.status,
+    built: /abgeschlossen|bestand|bau/i.test(d.status),
+    connectionKw: d.connectionKw,
+    computeKw: portfolioComputeKw(d.connectionKw),
+    grossEur: portfolioMrr(d.connectionKw),
+    goLive: d.goLive,
+    lat: center.lat,
+    lng: center.lng,
   };
 }
 

@@ -13,6 +13,7 @@ import {
   profitShareRatio,
   toCandidates,
   candidateToSite,
+  customToCandidate,
   revenueTimeline,
   ASSUMPTIONS,
   revPerKwMonth,
@@ -23,8 +24,13 @@ import {
   fmtNum,
   type Site,
   type Candidate,
+  type CustomDraft,
 } from './mock';
 import { TAMAX, SALLIER } from './developers';
+
+const STATUS_OPTIONS = ['In Planung', 'Im Bau', 'Im Vertrieb', 'Im Bestand', 'Abgeschlossen'];
+const YEARS = Array.from({ length: 9 }, (_, i) => 2024 + i); // 2024–2032, for "Live ab"
+const centerOf = (b: Bounds) => ({ lng: (b[0][0] + b[1][0]) / 2, lat: (b[0][1] + b[1][1]) / 2 });
 
 const MapboxMap = dynamic(() => import('./MapboxMap').then((m) => m.MapboxMap), { ssr: false });
 const HAS_MAPBOX = !!process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
@@ -40,6 +46,11 @@ const NOW_YEAR = 2026;
 const TAMAX_BOUNDS: Bounds = [[11.2, 51.9], [14.7, 53.8]];
 const SALLIER_BOUNDS: Bounds = [[9.2, 52.7], [10.9, 53.8]];
 const FLEET_BOUNDS: Bounds = [[9.3, 48.8], [15.0, 54.0]];
+// user-added ("Eigenes Projekt") rows get a marker at their developer's centre
+const CENTER: Record<string, { lat: number; lng: number }> = {
+  tamax: centerOf(TAMAX_BOUNDS),
+  sallier: centerOf(SALLIER_BOUNDS),
+};
 
 function aggSeries(sites: Site[], kind: 'power' | 'grid'): number[] {
   const live = sites.filter((s) => s.online);
@@ -62,9 +73,25 @@ export default function BoardPage() {
   const [hostShare, setHostShare] = useState(ASSUMPTIONS.hostSharePct);
   const [added, setAdded] = useState<string[]>([]);
   const [overrides, setOverrides] = useState<Record<string, number>>({});
+  const [customs, setCustoms] = useState<CustomDraft[]>([]);
+  const customSeq = useRef(0);
   const toggleAdd = (key: string) =>
     setAdded((prev) => (prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]));
-  const editKw = (key: string, kw: number) => setOverrides((prev) => ({ ...prev, [key]: kw }));
+  const isCustom = (key: string) => key.startsWith('custom:');
+  const editKw = (key: string, kw: number) => {
+    if (isCustom(key)) setCustoms((prev) => prev.map((c) => (c.key === key ? { ...c, connectionKw: kw } : c)));
+    else setOverrides((prev) => ({ ...prev, [key]: kw }));
+  };
+  const addProject = (devId: string) => {
+    const n = customSeq.current++;
+    setCustoms((prev) => [...prev, { key: `custom:${devId}:${n}`, devId, n, name: '', status: 'In Planung', goLive: 2027, connectionKw: 0 }]);
+  };
+  const editCustom = (key: string, patch: Partial<CustomDraft>) =>
+    setCustoms((prev) => prev.map((c) => (c.key === key ? { ...c, ...patch } : c)));
+  const removeCustom = (key: string) => {
+    setCustoms((prev) => prev.filter((c) => c.key !== key));
+    setAdded((prev) => prev.filter((k) => k !== key));
+  };
 
   // Pin a condensed KPI strip into the sticky masthead once the band scrolls out.
   const [kpiPinned, setKpiPinned] = useState(false);
@@ -80,8 +107,20 @@ export default function BoardPage() {
   }, []);
 
   const sites = useMemo(() => (nodes ?? []).map(siteFromNode), [nodes]);
-  const tamaxCands = useMemo(() => toCandidates(TAMAX.id, TAMAX.sites, overrides), [overrides]);
-  const sallierCands = useMemo(() => toCandidates(SALLIER.id, SALLIER.sites, overrides), [overrides]);
+  const tamaxCands = useMemo(
+    () => [
+      ...toCandidates(TAMAX.id, TAMAX.sites, overrides),
+      ...customs.filter((c) => c.devId === TAMAX.id).map((d) => customToCandidate(d, CENTER[TAMAX.id]!)),
+    ],
+    [overrides, customs],
+  );
+  const sallierCands = useMemo(
+    () => [
+      ...toCandidates(SALLIER.id, SALLIER.sites, overrides),
+      ...customs.filter((c) => c.devId === SALLIER.id).map((d) => customToCandidate(d, CENTER[SALLIER.id]!)),
+    ],
+    [overrides, customs],
+  );
   const allCands = useMemo(() => [...tamaxCands, ...sallierCands], [tamaxCands, sallierCands]);
   const addedSet = useMemo(() => new Set(added), [added]);
   const tamaxFleet = useMemo(
@@ -390,6 +429,9 @@ export default function BoardPage() {
             addedSet={addedSet}
             onToggle={toggleAdd}
             onEditKw={editKw}
+            onEditCustom={editCustom}
+            onRemoveCustom={removeCustom}
+            onAddProject={() => addProject(dev.id)}
             isOwner
             hostRatio={hostRatio}
           />
@@ -607,6 +649,9 @@ function PortfolioTable({
   addedSet,
   onToggle,
   onEditKw,
+  onEditCustom,
+  onRemoveCustom,
+  onAddProject,
   isOwner,
   hostRatio,
 }: {
@@ -615,14 +660,18 @@ function PortfolioTable({
   addedSet: Set<string>;
   onToggle: (key: string) => void;
   onEditKw: (key: string, kw: number) => void;
+  onEditCustom: (key: string, patch: { name?: string; status?: string; goLive?: number }) => void;
+  onRemoveCustom: (key: string) => void;
+  onAddProject: () => void;
   isOwner: boolean;
   hostRatio: number;
 }) {
-  const sorted = [...cands].sort((a, b) => b.connectionKw - a.connectionKw);
   const shown = (gross: number) => (isOwner ? hostShareOf(gross, hostRatio) : gross);
-  const nAdded = sorted.filter((c) => addedSet.has(c.key)).length;
-  const addedTotal = sorted.filter((c) => addedSet.has(c.key)).reduce((a, c) => a + shown(c.grossEur), 0);
-  const allTotal = sorted.reduce((a, c) => a + shown(c.grossEur), 0);
+  const fixed = cands.filter((c) => !c.key.startsWith('custom:')).sort((a, b) => b.connectionKw - a.connectionKw);
+  const custom = cands.filter((c) => c.key.startsWith('custom:')); // creation order, kept at the bottom
+  const nAdded = cands.filter((c) => addedSet.has(c.key)).length;
+  const addedTotal = cands.filter((c) => addedSet.has(c.key)).reduce((a, c) => a + shown(c.grossEur), 0);
+  const allTotal = cands.reduce((a, c) => a + shown(c.grossEur), 0);
   return (
     <section className="reveal mb-2" style={{ '--d': '600ms' } as React.CSSProperties}>
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
@@ -636,7 +685,7 @@ function PortfolioTable({
         </span>
       </div>
       <div className="b-card overflow-hidden">
-        <div style={{ maxHeight: 440, overflowY: 'auto' }}>
+        <div style={{ maxHeight: 460, overflowY: 'auto' }}>
           <table className="b-table w-full text-sm">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--line)' }}>
@@ -650,7 +699,7 @@ function PortfolioTable({
               </tr>
             </thead>
             <tbody>
-              {sorted.map((c) => {
+              {fixed.map((c) => {
                 const on = addedSet.has(c.key);
                 return (
                   <tr key={c.key} style={{ background: on ? 'rgba(169,132,63,.08)' : undefined }}>
@@ -689,6 +738,63 @@ function PortfolioTable({
                   </tr>
                 );
               })}
+
+              {/* user-entered ("Excel-like") rows — all four columns editable */}
+              {custom.map((c) => {
+                const on = addedSet.has(c.key);
+                return (
+                  <tr key={c.key} style={{ background: on ? 'rgba(169,132,63,.08)' : 'rgba(0,26,69,.025)' }}>
+                    <td>
+                      <input
+                        className="b-cell-input board-display"
+                        value={c.name}
+                        placeholder="Projektname…"
+                        onChange={(e) => onEditCustom(c.key, { name: e.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <select className="b-cell-select" value={c.status} onChange={(e) => onEditCustom(c.key, { status: e.target.value })}>
+                        {STATUS_OPTIONS.map((o) => (
+                          <option key={o} value={o}>{o}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td>
+                      <select className="b-cell-select" value={c.goLive} onChange={(e) => onEditCustom(c.key, { goLive: parseInt(e.target.value) })}>
+                        {YEARS.map((y) => (
+                          <option key={y} value={y}>{y}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="text-right">
+                      <EditableKw value={c.connectionKw} onChange={(v) => onEditKw(c.key, v)} />
+                    </td>
+                    <td className="text-right tabular-nums" style={{ color: 'var(--slate)' }}>{fmtNum(c.computeKw)} kW</td>
+                    <td className="text-right tabular-nums" style={{ color: 'var(--ink)' }}>{ca(fmtEurFull(shown(c.grossEur)))}</td>
+                    <td className="text-right">
+                      <div className="inline-flex items-center justify-end gap-1.5">
+                        <button
+                          className={on ? 'b-btn-primary' : 'b-btn-ghost'}
+                          style={{ padding: '0.3rem 0.7rem', fontSize: '0.75rem' }}
+                          onClick={() => onToggle(c.key)}
+                        >
+                          {on ? '✓ in Flotte' : '+ Flotte'}
+                        </button>
+                        <button className="b-icon-btn" title="Zeile entfernen" aria-label="Zeile entfernen" onClick={() => onRemoveCustom(c.key)}>
+                          ✕
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+
+              {/* add-a-line */}
+              <tr>
+                <td colSpan={7} style={{ padding: '0.45rem 0.6rem' }}>
+                  <button className="b-add-row" onClick={onAddProject}>+ Projekt hinzufügen</button>
+                </td>
+              </tr>
             </tbody>
           </table>
         </div>
@@ -696,8 +802,9 @@ function PortfolioTable({
       <p className="mt-2 text-xs" style={{ color: 'var(--slate)' }}>
         Rechen-kW = {pct(ASSUMPTIONS.computeHeadroomPct)}% des Netzanschlusses (nutzbare, flexible Last).
         Anschlusswerte sind <strong style={{ color: 'var(--ink)' }}>editierbar</strong> — anklicken und
-        anpassen. „Live ab“ = Jahr, ab dem die Fläche Rechenleistung tragen kann. Schätzungen, keine
-        netzbestätigten Werte.
+        anpassen. Mit <strong style={{ color: 'var(--ink)' }}>„+ Projekt hinzufügen“</strong> tragen Sie
+        eigene Flächen ein (Name, Status, Live ab, Anschluss). „Live ab“ = Jahr, ab dem die Fläche
+        Rechenleistung tragen kann. Schätzungen, keine netzbestätigten Werte.
       </p>
     </section>
   );
@@ -855,8 +962,8 @@ function PortfolioPreview({
       <div className="b-card b-card-pad reveal" style={{ position: 'relative', zIndex: 51, width: 'min(440px, 96vw)' }}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <div className="board-display text-xl" style={{ color: 'var(--navy)' }}>{cand.name}</div>
-            <div className="text-sm" style={{ color: 'var(--slate)' }}>{cand.ort} · {cand.typ}</div>
+            <div className="board-display text-xl" style={{ color: 'var(--navy)' }}>{cand.name || 'Neues Projekt'}</div>
+            <div className="text-sm" style={{ color: 'var(--slate)' }}>{[cand.ort, cand.typ].filter(Boolean).join(' · ')}</div>
           </div>
           <span
             className="stage"

@@ -133,4 +133,14 @@
 .b-kw-input:hover { border-color: var(--line); background: #fff; }
 .b-kw-input:focus { outline: none; border-color: var(--navy); background: #fff; }
 .b-kw-input::-webkit-outer-spin-button, .b-kw-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+/* Excel-like inline cell editors for user-entered project rows */
+.b-cell-input { width: 100%; min-width: 7rem; border: 1px solid var(--line); border-radius: 7px; padding: 0.22rem 0.45rem; background: #fff; color: var(--navy); font-weight: 600; transition: border-color 0.15s; }
+.b-cell-input::placeholder { color: var(--slate); font-weight: 400; font-family: var(--font-archivo, sans-serif); }
+.b-cell-input:focus { outline: none; border-color: var(--navy); }
+.b-cell-select { border: 1px solid var(--line); border-radius: 7px; padding: 0.22rem 0.4rem; background: #fff; color: var(--navy); font-weight: 600; font-size: 0.8rem; cursor: pointer; }
+.b-cell-select:focus { outline: none; border-color: var(--navy); }
+.b-icon-btn { width: 1.5rem; height: 1.5rem; border-radius: 999px; border: 1px solid var(--line); background: #fff; color: var(--slate); font-size: 0.72rem; line-height: 1; cursor: pointer; transition: color 0.15s, border-color 0.15s; }
+.b-icon-btn:hover { color: #b23b3b; border-color: #d8a0a0; }
+.b-add-row { display: inline-flex; align-items: center; gap: 0.4rem; border: 1px dashed var(--sand); background: transparent; color: var(--navy); border-radius: 8px; padding: 0.4rem 0.9rem; font-weight: 600; font-size: 0.8rem; cursor: pointer; transition: background 0.15s, border-color 0.15s; }
+.b-add-row:hover { background: rgba(169,132,63,.08); border-color: var(--gold); }
 .b-link { color: var(--navy); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
