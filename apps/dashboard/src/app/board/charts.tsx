@@ -82,6 +82,68 @@ export function Area({
   );
 }
 
+/** Revenue-over-time area chart with a year axis and a "heute" marker. The
+ * curve ramps softly as each site comes online, so steps read as real growth. */
+export function GrowthChart({
+  data,
+  nowIndex,
+  startYear = 2024,
+  color = 'var(--navy)',
+  height = 150,
+  fmt = (v: number) => `${Math.round(v)}`,
+}: {
+  data: number[];
+  nowIndex: number;
+  startYear?: number;
+  color?: string;
+  height?: number;
+  fmt?: (v: number) => string;
+}) {
+  const id = useId().replace(/:/g, '');
+  const W = 520;
+  const H = height;
+  const pad = { l: 8, r: 8, t: 16, b: 22 };
+  const plotW = W - pad.l - pad.r;
+  const plotH = H - pad.t - pad.b;
+  const max = Math.max(1, ...data) * 1.14;
+  const xAt = (i: number) => pad.l + (data.length <= 1 ? plotW / 2 : (i / (data.length - 1)) * plotW);
+  const yAt = (v: number) => pad.t + plotH - (v / max) * plotH;
+  const pts: [number, number][] = data.map((v, i) => [xAt(i), yAt(v)]);
+  const line = smooth(pts);
+  const area = `${line} L ${pad.l + plotW} ${pad.t + plotH} L ${pad.l} ${pad.t + plotH} Z`;
+  const last = pts[pts.length - 1] ?? [pad.l + plotW, yAt(0)];
+  const ni = Math.max(0, Math.min(data.length - 1, nowIndex));
+  const nowX = xAt(ni);
+  const nowPt = pts[ni] ?? last;
+  const yearTicks: number[] = [];
+  for (let i = 0; i < data.length; i += 12) yearTicks.push(i);
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" preserveAspectRatio="none" style={{ height }}>
+      <defs>
+        <linearGradient id={`gg${id}`} x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor={color} stopOpacity={0.26} />
+          <stop offset="100%" stopColor={color} stopOpacity={0.02} />
+        </linearGradient>
+      </defs>
+      <line x1={pad.l} x2={W - pad.r} y1={pad.t + plotH * 0.5} y2={pad.t + plotH * 0.5} stroke="var(--line)" strokeWidth={1} strokeDasharray="2 4" />
+      <line x1={nowX} x2={nowX} y1={pad.t} y2={pad.t + plotH} stroke="var(--slate)" strokeWidth={1} strokeDasharray="3 3" opacity={0.7} />
+      <text x={nowX} y={pad.t - 4} textAnchor="middle" fontSize={9} fill="var(--slate)">heute</text>
+      <path d={area} fill={`url(#gg${id})`} />
+      <path d={line} fill="none" stroke={color} strokeWidth={2.25} strokeLinecap="round" />
+      <circle cx={nowPt[0]} cy={nowPt[1]} r={3} fill="var(--paper)" stroke="var(--slate)" strokeWidth={1.5} />
+      <circle cx={last[0]} cy={last[1]} r={3.5} fill="var(--paper)" stroke={color} strokeWidth={2.25} />
+      {yearTicks.map((i) => (
+        <text key={i} x={xAt(i)} y={H - 6} textAnchor="middle" fontSize={9} fill="var(--slate)">
+          {startYear + i / 12}
+        </text>
+      ))}
+      <text x={W - pad.r} y={pad.t - 4} textAnchor="end" fontSize={11} fontWeight={600} fill={color}>
+        {fmt(data[data.length - 1] ?? 0)}
+      </text>
+    </svg>
+  );
+}
+
 /** Tiny inline sparkline. */
 export function Spark({ data, color = 'var(--navy)', width = 96, height = 28 }: { data: number[]; color?: string; width?: number; height?: number }) {
   const max = Math.max(1, ...data);

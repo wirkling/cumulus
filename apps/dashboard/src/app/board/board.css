@@ -112,6 +112,9 @@
 .mb-pin-portfolio.mb-pin-built { border-style: solid; }
 .mb-pin-added { background: var(--gold) !important; border: 2px solid #fff !important; box-shadow: 0 0 0 2px var(--gold); opacity: 1 !important; }
 .mb-pin-sel { outline: 3px solid var(--gold); outline-offset: 2px; }
+/* second developer (Heidewerk) candidates read as a distinct region */
+.mb-pin-heidewerk { border-color: var(--sand); }
+.mb-pin-heidewerk.mb-pin-built { border-color: var(--slate); }
 .board .mapboxgl-ctrl-logo, .board .mapboxgl-ctrl-attrib { opacity: 0.65; }
 
 /* ── modal (property calculator) ──────────────────────────────────────────── */
@@ -125,4 +128,9 @@
 .b-table th { color: var(--slate); font-weight: 600; }
 .b-table td, .b-table th { padding: 0.5rem 0.6rem; }
 .b-table tbody tr { border-top: 1px solid var(--line); }
+/* inline-editable connection value in the portfolio table */
+.b-kw-input { width: 4.4rem; text-align: right; border: 1px solid transparent; border-radius: 7px; padding: 0.15rem 0.35rem; background: transparent; color: var(--navy); font-weight: 600; font-variant-numeric: tabular-nums; cursor: text; transition: border-color 0.15s, background 0.15s; -moz-appearance: textfield; }
+.b-kw-input:hover { border-color: var(--line); background: #fff; }
+.b-kw-input:focus { outline: none; border-color: var(--navy); background: #fff; }
+.b-kw-input::-webkit-outer-spin-button, .b-kw-input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
 .b-link { color: var(--navy); text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }

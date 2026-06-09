@@ -1,8 +1,8 @@
 /**
  * Board-view economics — ONE shared assumptions block; everything (site
- * revenue, the property calculator, the pipeline, gross margin) derives from it,
- * so the numbers are internally consistent. NODES are real (live from the
- * control plane); the money is SIMULATED and deterministically seeded per node
+ * revenue, the portfolio potential, the over-time ramp, gross margin) derives
+ * from it, so the numbers are internally consistent. NODES are real (live from
+ * the control plane); the money is SIMULATED and deterministically seeded per
  * id. Anchored on GPU/target economics — all figures are "geschätzt" (preview).
  */
 import type { NodeSummary } from '@cumulus/shared-types';
@@ -13,34 +13,39 @@ export const ASSUMPTIONS = {
   // Conservative base: Vast/RunPod 4090 ≈ $0.40–0.50/h → ~$207–260/mo at 72%
   // util; after platform fee / FX / idle, a conservative €/GPU/mo is ~220–300.
   // NOTE: this is Cumulus's GROSS compute revenue — the real-estate host receives
-  // hostSharePct of it (see boardKpis), not the full amount.
+  // hostSharePct of the operating PROFIT (see boardKpis), not the full amount.
   revPerGpuMonth: 260, // €/GPU/month (Model A/B blended, conservative) — the anchor
   kwPerGpu: 0.6, // consumer GPU (4090 ≈ 0.45 kW) + cooling/overhead (PUE ≈ 1.3)
   sqmPerGpu: 0.5, // effective m²/GPU in a building retrofit (rack + aisle + cooling/electrical)
   targetUtilizationPct: 72, // assumed steady-state utilization
   energyPriceEurKwh: 0.3, // €/kWh (German grid; adjustable)
   avgSolarPct: 18, // avg on-site generation share
-  // RE host's share — basis depends on splitMode (% of gross / % of operating
-  // profit / fixed rent). Default is profit-based (can never make Cumulus negative).
+  // RE host's share of the operating PROFIT (after energy + hardware amortization)
+  // — the only participation model, so it can never make Cumulus negative.
   hostSharePct: 0.4,
-  fixedRentPerKwMonth: 80, // alt: fixed rent per kW of compute (Fixpreis mode)
   // Share of a building's MAX grid connection realistically usable as flexible /
   // curtailable compute load. KEY assumption to calibrate with grid knowledge.
   computeHeadroomPct: 0.2,
   // Cumulus capex: fully-installed €/GPU — GPU + host/"feeder" server + network +
-  // rack/PDU + cooling + electrical/install. Cumulus funds it (adjustable).
+  // rack/PDU + cooling + electrical/install. Cumulus funds it (fixed assumption).
   capexPerGpuEur: 4500,
   hardwareLifeMonths: 36, // amortization period
   // Heat reuse — waste heat warms the host's building, offsetting their heating
-  // bill. This is value to the HOST (justifies a modest cash share).
+  // bill. This is value to the HOST (a one-time integration invest may be needed,
+  // esp. in older buildings — surfaced in copy).
   heatRecoveryPct: 0.6, // share of consumed power recoverable as useful heat
-  heatValueEurKwh: 0.1, // €/kWh-thermal the host would otherwise pay
+  heatValueEurKwh: 0.05, // €/kWh-thermal the host would otherwise pay
 };
 
-export type SplitMode = 'umsatz' | 'ergebnis' | 'fix';
 const HOURS_PER_MONTH = 730;
 /** Derived: every €/kW figure on the board uses this one rate (≈ €355). */
 export const revPerKwMonth = ASSUMPTIONS.revPerGpuMonth / ASSUMPTIONS.kwPerGpu;
+
+// ── time horizon for the over-time growth charts ─────────────────────────────
+export const TL_START_YEAR = 2024;
+export const TL_MONTHS = 72; // 2024-01 … 2029-12
+export const TL_NOW_INDEX = (2026 - TL_START_YEAR) * 12 + 5; // "heute" = 2026-06
+const RAMP_MONTHS = 9; // soft ramp-up after a site goes live
 
 // ── deterministic PRNG (so server/client + refreshes agree) ──────────────────
 function hashStr(s: string): number {
@@ -62,6 +67,10 @@ function rng(seed: string): () => number {
   };
 }
 const pick = <T,>(r: () => number, xs: T[]): T => xs[Math.floor(r() * xs.length) % xs.length]!;
+const smoothstep = (x: number): number => {
+  const t = Math.max(0, Math.min(1, x));
+  return t * t * (3 - 2 * t);
+};
 
 export interface Site {
   id: string;
@@ -80,6 +89,7 @@ export interface Site {
   utilizationPct: number;
   monthlyRevenueEur: number;
   uptimePct: number;
+  goLiveYear: number; // year this site went / goes online (drives the ramp)
 }
 
 const SITE_TYPES = [
@@ -126,6 +136,7 @@ export function siteFromNode(n: NodeSummary): Site {
     utilizationPct,
     monthlyRevenueEur,
     uptimePct: online ? +(99.2 + r() * 0.79).toFixed(2) : 0,
+    goLiveYear: TL_START_YEAR, // the real nodes are already running
   };
 }
 
@@ -156,9 +167,8 @@ export function series(site: Site, kind: SeriesKind, points = 24): number[] {
 export interface BoardKpis {
   grossEur: number; // total compute billings (Cumulus top line)
   grossArrEur: number;
-  hostPayoutEur: number; // RE host's cash share
+  hostPayoutEur: number; // RE host's cash share (of operating profit)
   hostSharePct: number;
-  splitMode: SplitMode;
   heatCreditEur: number; // waste-heat value to the host
   hostTotalBenefitEur: number; // host cash + heat
   contributionEur: number; // gross − host − energy (operating contribution)
@@ -184,16 +194,12 @@ export interface KpiLevers {
   energyPriceEurKwh?: number;
   hostSharePct?: number;
   capexPerGpuEur?: number;
-  splitMode?: SplitMode;
-  fixedRentPerKwMonth?: number;
 }
 
 export function boardKpis(sites: Site[], customers: number, levers: KpiLevers = {}): BoardKpis {
   const energyPriceEurKwh = levers.energyPriceEurKwh ?? ASSUMPTIONS.energyPriceEurKwh;
   const hostSharePct = levers.hostSharePct ?? ASSUMPTIONS.hostSharePct;
   const capexPerGpuEur = levers.capexPerGpuEur ?? ASSUMPTIONS.capexPerGpuEur;
-  const splitMode = levers.splitMode ?? 'ergebnis';
-  const fixedRentPerKwMonth = levers.fixedRentPerKwMonth ?? ASSUMPTIONS.fixedRentPerKwMonth;
 
   const live = sites.filter((s) => s.online);
   const gross = sites.reduce((a, s) => a + s.monthlyRevenueEur, 0);
@@ -209,20 +215,13 @@ export function boardKpis(sites: Site[], customers: number, levers: KpiLevers = 
   const capex = Math.round(gpus * capexPerGpuEur);
   const amort = Math.round(capex / ASSUMPTIONS.hardwareLifeMonths);
 
-  // Host payout depends on the participation model:
-  //  - umsatz:   % of gross (fragile — can make Cumulus negative)
-  //  - ergebnis: % of operating profit after energy + capex (never negative)
-  //  - fix:      fixed rent per kW of compute capacity
+  // Host payout = a share of the operating profit (after energy + amortization).
+  // This is the only model — it can never push Cumulus into the red.
   const profitBeforeHost = Math.max(0, gross - energyCost - amort);
-  const hostPayout =
-    splitMode === 'fix'
-      ? Math.round(fixedRentPerKwMonth * cap)
-      : splitMode === 'ergebnis'
-        ? Math.round(hostSharePct * profitBeforeHost)
-        : Math.round(hostSharePct * gross);
+  const hostPayout = Math.round(hostSharePct * profitBeforeHost);
 
   const contribution = Math.max(0, gross - hostPayout - energyCost);
-  const cumulusResult = gross - hostPayout - energyCost - amort; // can be negative (umsatz/fix)
+  const cumulusResult = gross - hostPayout - energyCost - amort;
   const payback = contribution > 0 ? Math.round(capex / contribution) : 0;
   const cumulusMargin = gross > 0 ? Math.round((cumulusResult / gross) * 100) : 0;
 
@@ -243,7 +242,6 @@ export function boardKpis(sites: Site[], customers: number, levers: KpiLevers = 
     grossArrEur: gross * 12,
     hostPayoutEur: hostPayout,
     hostSharePct,
-    splitMode,
     heatCreditEur: heatCredit,
     hostTotalBenefitEur: hostPayout + heatCredit,
     contributionEur: contribution,
@@ -266,36 +264,117 @@ export function boardKpis(sites: Site[], customers: number, levers: KpiLevers = 
   };
 }
 
-/** The RE host's share of a gross revenue figure (for per-site / pipeline). */
-export const hostShareOf = (gross: number, pct: number): number => Math.round(gross * pct);
+/** Apply a fraction to a gross figure (used for per-site host benefit). Pass the
+ * realized profit-share RATIO (see profitShareRatio / fleet payout÷gross), NOT
+ * the headline hostSharePct — the host is paid a share of PROFIT, not of gross. */
+export const hostShareOf = (gross: number, ratio: number): number => Math.round(gross * ratio);
 
-// ── TAMAX portfolio → compute potential ──────────────────────────────────────
+/** Fraction of GROSS that reaches the host as payout for a representative
+ * building at steady state — i.e. hostSharePct × (profit ÷ gross), where profit
+ * is per-kW gross minus energy and hardware amortization at the current levers.
+ * All candidate buildings share the same per-kW unit economics, so this single
+ * ratio reconciles every per-site "Ihr Anteil" with the fleet-level payout, and
+ * stays meaningful even before anything is activated. */
+export function profitShareRatio(levers: KpiLevers = {}): number {
+  const energyPriceEurKwh = levers.energyPriceEurKwh ?? ASSUMPTIONS.energyPriceEurKwh;
+  const hostSharePct = levers.hostSharePct ?? ASSUMPTIONS.hostSharePct;
+  const capexPerGpuEur = levers.capexPerGpuEur ?? ASSUMPTIONS.capexPerGpuEur;
+  const u = ASSUMPTIONS.targetUtilizationPct / 100;
+  const grossPerKw = revPerKwMonth; // at target utilization
+  const powerPerKw = 0.32 + u * 0.62; // same intensity model as the sites
+  const gridPerKw = powerPerKw * (1 - ASSUMPTIONS.avgSolarPct / 100);
+  const energyPerKw = gridPerKw * HOURS_PER_MONTH * energyPriceEurKwh;
+  const amortPerKw = (capexPerGpuEur / ASSUMPTIONS.kwPerGpu) / ASSUMPTIONS.hardwareLifeMonths;
+  const profitPerKw = Math.max(0, grossPerKw - energyPerKw - amortPerKw);
+  return grossPerKw > 0 ? (hostSharePct * profitPerKw) / grossPerKw : 0;
+}
+
+// ── portfolio building → compute potential ───────────────────────────────────
 /** Compute capacity (kW) realistically hostable in a building = headroom × its
  * max grid connection. */
-export const portfolioComputeKw = (p: PortfolioSite): number =>
-  Math.round(p.connectionKw * ASSUMPTIONS.computeHeadroomPct);
+export const portfolioComputeKw = (connectionKw: number): number =>
+  Math.round(connectionKw * ASSUMPTIONS.computeHeadroomPct);
 
-/** Gross monthly compute revenue if this building were activated. */
-export const portfolioMrr = (p: PortfolioSite): number =>
-  Math.round(portfolioComputeKw(p) * revPerKwMonth);
+/** Gross monthly compute revenue if this capacity were activated. */
+export const portfolioMrr = (connectionKw: number): number =>
+  Math.round(portfolioComputeKw(connectionKw) * revPerKwMonth);
 
-/** Turn an "added" portfolio building into a synthetic live Site for the KPIs.
- * Utilization/solar are seeded per building so each site's graphs differ. */
-export function portfolioToSite(p: PortfolioSite): Site {
-  const r = rng('tamax-' + p.id);
-  const capacityKw = portfolioComputeKw(p);
+/** When a building goes online (year). Built ones are already live (2023–25);
+ * planned ones land 2026–2029 by current stage. Deterministic per building. */
+export function siteGoLive(p: PortfolioSite): number {
+  const seed = hashStr('golive:' + p.id + ':' + p.ort);
+  if (p.built) return 2023 + (seed % 3); // 2023–2025 → live by today
+  const s = p.status.toLowerCase();
+  const earliest = s.includes('bau') || s.includes('vertrieb') ? 2026 : 2027;
+  return earliest + (seed % 3); // future ramp
+}
+
+// ── candidates: a developer's buildings as addable fleet units ────────────────
+/** A portfolio building made addable — connection can be overridden by the user;
+ * everything downstream derives from the effective connectionKw. */
+export interface Candidate {
+  key: string; // globally-unique `${devId}:${id}`
+  devId: string;
+  id: number;
+  name: string;
+  ort: string;
+  typ: string;
+  status: string;
+  built: boolean;
+  connectionKw: number; // effective (user override applied)
+  computeKw: number;
+  grossEur: number;
+  goLive: number;
+  lat: number;
+  lng: number;
+}
+
+export const candKey = (devId: string, id: number): string => `${devId}:${id}`;
+
+export function toCandidates(
+  devId: string,
+  sites: PortfolioSite[],
+  overrides: Record<string, number> = {},
+): Candidate[] {
+  return sites.map((p) => {
+    const key = candKey(devId, p.id);
+    const connectionKw = overrides[key] ?? p.connectionKw;
+    return {
+      key,
+      devId,
+      id: p.id,
+      name: p.name,
+      ort: p.ort,
+      typ: p.typ,
+      status: p.status,
+      built: p.built,
+      connectionKw,
+      computeKw: portfolioComputeKw(connectionKw),
+      grossEur: portfolioMrr(connectionKw),
+      goLive: siteGoLive(p),
+      lat: p.lat,
+      lng: p.lng,
+    };
+  });
+}
+
+/** Turn an activated candidate into a synthetic live Site for the KPIs.
+ * Utilization/solar seeded per building so each site's graphs differ. */
+export function candidateToSite(c: Candidate): Site {
+  const r = rng(c.devId + '-' + c.id);
+  const capacityKw = c.computeKw;
   const util = Math.min(95, Math.round(ASSUMPTIONS.targetUtilizationPct * (0.8 + r() * 0.32)));
   const powerDrawKw = +(capacityKw * (0.32 + (util / 100) * 0.62)).toFixed(1);
   const solarPct = r() < 0.7 ? Math.round(ASSUMPTIONS.avgSolarPct * (0.5 + r() * 1.4)) : 0;
   const gridDrawKw = +(powerDrawKw * (1 - solarPct / 100)).toFixed(1);
   return {
-    id: 'tamax-' + p.id,
-    name: p.name,
-    buildingName: `${p.ort} · ${p.name}`,
+    id: c.devId + '-' + c.id,
+    name: c.name,
+    buildingName: `${c.ort} · ${c.name}`,
     siteType: 'Portfolio',
-    city: p.ort,
-    lat: p.lat,
-    lng: p.lng,
+    city: c.ort,
+    lat: c.lat,
+    lng: c.lng,
     online: true,
     kind: 'gpu',
     capacityKw,
@@ -307,57 +386,23 @@ export function portfolioToSite(p: PortfolioSite): Site {
       (capacityKw / ASSUMPTIONS.kwPerGpu) * ASSUMPTIONS.revPerGpuMonth * (util / ASSUMPTIONS.targetUtilizationPct),
     ),
     uptimePct: +(99.2 + r() * 0.79).toFixed(2),
+    goLiveYear: c.goLive,
   };
 }
 
-/** A manually-added "own area" (from the Immobilie-hinzufügen calculator). */
-export function customSiteFromKw(n: number, computeKw: number, label: string): Site {
-  const util = ASSUMPTIONS.targetUtilizationPct;
-  const powerDrawKw = +(computeKw * (0.32 + (util / 100) * 0.62)).toFixed(1);
-  const solarPct = ASSUMPTIONS.avgSolarPct;
-  return {
-    id: 'custom-' + n,
-    name: label,
-    buildingName: label,
-    siteType: 'Eigene Fläche',
-    city: label,
-    lat: 52.3 + (n % 5) * 0.05,
-    lng: 13.2 + (n % 5) * 0.05,
-    online: true,
-    kind: 'gpu',
-    capacityKw: computeKw,
-    powerDrawKw,
-    gridDrawKw: +(powerDrawKw * (1 - solarPct / 100)).toFixed(1),
-    solarPct,
-    utilizationPct: util,
-    monthlyRevenueEur: Math.round((computeKw / ASSUMPTIONS.kwPerGpu) * ASSUMPTIONS.revPerGpuMonth),
-    uptimePct: 99.5,
-  };
+/** Monthly gross-revenue curve for a fleet: each site contributes 0 until its
+ * go-live month, then ramps up over RAMP_MONTHS (smoothstep) to steady state.
+ * Go-live month is jittered per site so the aggregate steps look organic. */
+export function revenueTimeline(sites: Site[], months = TL_MONTHS, startYear = TL_START_YEAR): number[] {
+  const out = new Array(months).fill(0);
+  for (const s of sites) {
+    const gm = hashStr('glm:' + s.id) % 12;
+    const liveIdx = (s.goLiveYear - startYear) * 12 + gm;
+    const steady = s.monthlyRevenueEur;
+    for (let i = 0; i < months; i++) out[i] += steady * smoothstep((i - liveIdx) / RAMP_MONTHS);
+  }
+  return out.map((v) => Math.round(v));
 }
-
-// ── expansion pipeline (revenue derived, not hardcoded) ──────────────────────
-export type PipelineStage = 'signed' | 'survey' | 'candidate';
-
-export interface PipelineSite {
-  city: string;
-  buildingName: string;
-  stage: PipelineStage;
-  projectedKw: number;
-  lat: number;
-  lng: number;
-}
-
-/** Candidate buildings in TAMAX's Berlin-Brandenburg portfolio. */
-export const PIPELINE: PipelineSite[] = [
-  { city: 'Potsdam', buildingName: 'Wohn-/Gewerbe — Erdgeschoss', stage: 'signed', projectedKw: 12, lat: 52.4, lng: 13.06 },
-  { city: 'Brandenburg a.d. Havel', buildingName: 'Quartier — Technikgeschoss', stage: 'survey', projectedKw: 18, lat: 52.41, lng: 12.55 },
-  { city: 'Oranienburg', buildingName: 'Gewerbeeinheit — Technikraum', stage: 'survey', projectedKw: 9, lat: 52.75, lng: 13.24 },
-  { city: 'Cottbus', buildingName: 'Leerstehendes Ladenlokal', stage: 'candidate', projectedKw: 14, lat: 51.76, lng: 14.33 },
-  { city: 'Frankfurt (Oder)', buildingName: 'Büro — Technikgeschoss', stage: 'candidate', projectedKw: 8, lat: 52.34, lng: 14.55 },
-];
-
-/** Projected monthly revenue for a pipeline site — same rate as everything else. */
-export const projectedMrr = (kw: number): number => Math.round(kw * revPerKwMonth);
 
 // German number formatting (de-DE): 12.345 thousands, comma decimals.
 export const fmtEur = (v: number): string => {
@@ -369,29 +414,3 @@ export const fmtEur = (v: number): string => {
 };
 export const fmtEurFull = (v: number): string => '€' + Math.round(v).toLocaleString('de-DE');
 export const fmtNum = (v: number): string => Math.round(v).toLocaleString('de-DE');
-
-// ── property potential estimator (the "Immobilie hinzufügen" calculator) ─────
-// GPUs are limited by BOTH power and space — and in a real building the
-// Anschlussleistung (power) is usually the binding constraint.
-export interface PropertyEstimate {
-  gpus: number;
-  byPower: number;
-  bySpace: number;
-  limitedBy: 'power' | 'space';
-  monthlyRevenueEur: number;
-  capacityKw: number;
-}
-
-export function estimateProperty(sqm: number, kw: number): PropertyEstimate {
-  const byPower = Math.floor((kw || 0) / ASSUMPTIONS.kwPerGpu);
-  const bySpace = Math.floor((sqm || 0) / ASSUMPTIONS.sqmPerGpu);
-  const gpus = Math.max(0, Math.min(byPower, bySpace));
-  return {
-    gpus,
-    byPower,
-    bySpace,
-    limitedBy: byPower <= bySpace ? 'power' : 'space',
-    monthlyRevenueEur: gpus * ASSUMPTIONS.revPerGpuMonth, // potential at target utilization
-    capacityKw: +(gpus * ASSUMPTIONS.kwPerGpu).toFixed(1),
-  };
-}

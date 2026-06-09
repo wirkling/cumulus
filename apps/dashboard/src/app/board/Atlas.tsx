@@ -1,15 +1,15 @@
 'use client';
 /**
- * SVG fallback map (used when no Mapbox token). Real live nodes + the TAMAX
- * portfolio as clickable candidates (click toggles add-to-fleet). Equirectangular
- * projection over a Berlin-Brandenburg-inclusive frame; no country border.
+ * SVG fallback map (used when no Mapbox token). Real live nodes + developer
+ * candidates as clickable markers (click → preview/add). Equirectangular
+ * projection over a frame covering Hamburg·Lüneburg, Berlin·Brandenburg and the
+ * southern live nodes; no country border.
  */
-import type { Site } from './mock';
-import type { PortfolioSite } from './tamax-portfolio';
+import type { Site, Candidate } from './mock';
 
-const BOUNDS = { latMin: 48.6, latMax: 54.0, lngMin: 10.3, lngMax: 15.2 };
-const W = 520;
-const H = 520;
+const BOUNDS = { latMin: 48.6, latMax: 54.1, lngMin: 9.2, lngMax: 15.2 };
+const W = 560;
+const H = 560;
 const PAD = 44;
 const plotW = W - PAD * 2;
 const plotH = H - PAD * 2;
@@ -29,21 +29,21 @@ function jitter(id: string): [number, number] {
 
 export function Atlas({
   sites,
-  portfolio,
-  added,
+  candidates,
+  addedKeys,
   onPreview,
   selectedId,
   onSelect,
 }: {
   sites: Site[];
-  portfolio: PortfolioSite[];
-  added: number[];
-  onPreview: (id: number) => void;
+  candidates: Candidate[];
+  addedKeys: string[];
+  onPreview: (key: string) => void;
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
-  const addedSet = new Set(added);
-  const lngTicks = [11, 12, 13, 14, 15];
+  const addedSet = new Set(addedKeys);
+  const lngTicks = [10, 11, 12, 13, 14, 15];
   const latTicks = [49, 50, 51, 52, 53];
 
   return (
@@ -57,24 +57,25 @@ export function Atlas({
         return <line key={`h${lat}`} x1={PAD} y1={y} x2={W - PAD} y2={y} stroke="var(--line)" strokeWidth={1} />;
       })}
 
-      {/* TAMAX portfolio candidates */}
-      {portfolio.map((p) => {
-        const [x, y] = project(p.lat, p.lng);
-        const on = addedSet.has(p.id);
-        const r = 4 + Math.min(6, p.connectionKw / 250);
+      {/* developer candidates */}
+      {candidates.map((c) => {
+        const [x, y] = project(c.lat, c.lng);
+        const on = addedSet.has(c.key);
+        const r = 4 + Math.min(6, c.connectionKw / 250);
+        const stroke = on ? 'var(--gold)' : c.devId === 'heidewerk' ? 'var(--sand)' : 'var(--navy)';
         return (
-          <g key={`p${p.id}`} style={{ cursor: 'pointer' }} onClick={() => onPreview(p.id)}>
+          <g key={c.key} style={{ cursor: 'pointer' }} onClick={() => onPreview(c.key)}>
             <circle
               cx={x}
               cy={y}
               r={r}
               fill={on ? 'var(--gold)' : 'var(--paper)'}
-              stroke={on ? 'var(--gold)' : 'var(--navy)'}
+              stroke={stroke}
               strokeWidth={1.4}
               strokeDasharray={on ? undefined : '2 2'}
               opacity={0.9}
             >
-              <title>{`${p.name} — ${p.ort} · ${p.connectionKw} kW`}</title>
+              <title>{`${c.name} — ${c.ort} · ${c.connectionKw} kW`}</title>
             </circle>
           </g>
         );
@@ -101,7 +102,7 @@ export function Atlas({
         <circle cx={5} cy={0} r={5} fill="var(--navy)" />
         <text x={15} y={3} fontSize={10} fill="var(--ink)">Live-Knoten</text>
         <circle cx={108} cy={0} r={4.5} fill="var(--paper)" stroke="var(--navy)" strokeWidth={1.4} strokeDasharray="2 2" />
-        <text x={118} y={3} fontSize={10} fill="var(--slate)">TAMAX-Portfolio (anklicken → zur Flotte)</text>
+        <text x={118} y={3} fontSize={10} fill="var(--slate)">Portfolio (anklicken → zur Flotte)</text>
       </g>
     </svg>
   );
