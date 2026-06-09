@@ -62,7 +62,7 @@ export function Atlas({
         const [x, y] = project(c.lat, c.lng);
         const on = addedSet.has(c.key);
         const r = 4 + Math.min(6, c.connectionKw / 250);
-        const stroke = on ? 'var(--gold)' : c.devId === 'heidewerk' ? 'var(--sand)' : 'var(--navy)';
+        const stroke = on ? 'var(--gold)' : c.devId === 'sallier' ? 'var(--sand)' : 'var(--navy)';
         return (
           <g key={c.key} style={{ cursor: 'pointer' }} onClick={() => onPreview(c.key)}>
             <circle

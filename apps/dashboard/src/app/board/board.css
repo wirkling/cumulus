@@ -112,9 +112,9 @@
 .mb-pin-portfolio.mb-pin-built { border-style: solid; }
 .mb-pin-added { background: var(--gold) !important; border: 2px solid #fff !important; box-shadow: 0 0 0 2px var(--gold); opacity: 1 !important; }
 .mb-pin-sel { outline: 3px solid var(--gold); outline-offset: 2px; }
-/* second developer (Heidewerk) candidates read as a distinct region */
-.mb-pin-heidewerk { border-color: var(--sand); }
-.mb-pin-heidewerk.mb-pin-built { border-color: var(--slate); }
+/* second developer (SALLIER) candidates read as a distinct region */
+.mb-pin-sallier { border-color: var(--sand); }
+.mb-pin-sallier.mb-pin-built { border-color: var(--slate); }
 .board .mapboxgl-ctrl-logo, .board .mapboxgl-ctrl-attrib { opacity: 0.65; }
 
 /* ── modal (property calculator) ──────────────────────────────────────────── */

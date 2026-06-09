@@ -24,20 +24,21 @@ import {
   type Site,
   type Candidate,
 } from './mock';
-import { TAMAX, HEIDEWERK } from './developers';
+import { TAMAX, SALLIER } from './developers';
 
 const MapboxMap = dynamic(() => import('./MapboxMap').then((m) => m.MapboxMap), { ssr: false });
 const HAS_MAPBOX = !!process.env.NEXT_PUBLIC_MAPBOX_TOKEN;
 
-type Role = 'owner' | 'board';
+type Tab = 'tamax' | 'sallier' | 'board';
 type Bounds = [[number, number], [number, number]];
 const ca = (s: string) => `ca. ${s}`;
 const pct = (f: number) => Math.round(f * 100);
 const NOW_YEAR = 2026;
 
-// Owner view frames TAMAX's region; the Cumulus view frames the whole fleet
-// (both developer regions + the southern live nodes).
+// Each developer tab frames its own region; the Cumulus view frames the whole
+// fleet (both developer regions + the southern live nodes).
 const TAMAX_BOUNDS: Bounds = [[11.2, 51.9], [14.7, 53.8]];
+const SALLIER_BOUNDS: Bounds = [[9.2, 52.7], [10.9, 53.8]];
 const FLEET_BOUNDS: Bounds = [[9.3, 48.8], [15.0, 54.0]];
 
 function aggSeries(sites: Site[], kind: 'power' | 'grid'): number[] {
@@ -54,7 +55,7 @@ export default function BoardPage() {
   const { data: nodes } = usePoll<NodeSummary[]>('/api/nodes', 4000);
   const { data: customers } = usePoll<Customer[]>('/api/customers', 15000);
   const { data: allocation } = usePoll<FleetAllocation>('/api/allocation', 5000);
-  const [role, setRole] = useState<Role>('owner');
+  const [tab, setTab] = useState<Tab>('tamax');
   const [selId, setSelId] = useState<string | null>(null);
   const [previewKey, setPreviewKey] = useState<string | null>(null);
   const [energyPrice, setEnergyPrice] = useState(ASSUMPTIONS.energyPriceEurKwh);
@@ -80,23 +81,27 @@ export default function BoardPage() {
 
   const sites = useMemo(() => (nodes ?? []).map(siteFromNode), [nodes]);
   const tamaxCands = useMemo(() => toCandidates(TAMAX.id, TAMAX.sites, overrides), [overrides]);
-  const heideCands = useMemo(() => toCandidates(HEIDEWERK.id, HEIDEWERK.sites, overrides), [overrides]);
-  const allCands = useMemo(() => [...tamaxCands, ...heideCands], [tamaxCands, heideCands]);
+  const sallierCands = useMemo(() => toCandidates(SALLIER.id, SALLIER.sites, overrides), [overrides]);
+  const allCands = useMemo(() => [...tamaxCands, ...sallierCands], [tamaxCands, sallierCands]);
   const addedSet = useMemo(() => new Set(added), [added]);
   const tamaxFleet = useMemo(
     () => tamaxCands.filter((c) => addedSet.has(c.key)).map(candidateToSite),
     [tamaxCands, addedSet],
   );
-  const heideFleet = useMemo(
-    () => heideCands.filter((c) => addedSet.has(c.key)).map(candidateToSite),
-    [heideCands, addedSet],
+  const sallierFleet = useMemo(
+    () => sallierCands.filter((c) => addedSet.has(c.key)).map(candidateToSite),
+    [sallierCands, addedSet],
   );
-  const cumulusFleet = useMemo(() => [...sites, ...tamaxFleet, ...heideFleet], [sites, tamaxFleet, heideFleet]);
+  const cumulusFleet = useMemo(() => [...sites, ...tamaxFleet, ...sallierFleet], [sites, tamaxFleet, sallierFleet]);
 
   const cust = customers?.length ?? 0;
-  const ownerKpis = useMemo(
+  const tamaxKpis = useMemo(
     () => boardKpis(tamaxFleet, cust, { energyPriceEurKwh: energyPrice, hostSharePct: hostShare }),
     [tamaxFleet, cust, energyPrice, hostShare],
+  );
+  const sallierKpis = useMemo(
+    () => boardKpis(sallierFleet, cust, { energyPriceEurKwh: energyPrice, hostSharePct: hostShare }),
+    [sallierFleet, cust, energyPrice, hostShare],
   );
   const cumulusKpis = useMemo(
     () => boardKpis(cumulusFleet, cust, { energyPriceEurKwh: energyPrice, hostSharePct: hostShare }),
@@ -113,8 +118,14 @@ export default function BoardPage() {
     );
   }
 
-  const kpis = role === 'owner' ? ownerKpis : cumulusKpis;
-  const viewFleet = role === 'owner' ? tamaxFleet : cumulusFleet;
+  const isBoard = tab === 'board';
+  const dev = tab === 'sallier' ? SALLIER : TAMAX; // active developer (when !isBoard)
+  const devCands = tab === 'sallier' ? sallierCands : tamaxCands;
+  const devFleet = tab === 'sallier' ? sallierFleet : tamaxFleet;
+  const devKpis = tab === 'sallier' ? sallierKpis : tamaxKpis;
+
+  const kpis = isBoard ? cumulusKpis : devKpis;
+  const viewFleet = isBoard ? cumulusFleet : devFleet;
   const liveNodes = nodes.filter((n) => n.status === 'online').length;
   const liveJobs = allocation?.jobs.length ?? 0;
   const liveLeases = allocation?.leases.length ?? 0;
@@ -129,34 +140,32 @@ export default function BoardPage() {
       ? kpis.hostPayoutEur / kpis.grossEur
       : profitShareRatio({ energyPriceEurKwh: energyPrice, hostSharePct: hostShare });
 
-  // Over-time growth — owner sees their cash share ramp, the board sees the fleet
-  // gross. Each site ramps softly after its own go-live, so steps read organic.
-  const growthData =
-    role === 'owner'
-      ? revenueTimeline(tamaxFleet).map((v) => Math.round(v * hostRatio))
-      : revenueTimeline(cumulusFleet);
+  // Over-time growth — a developer tab shows its host cash-share ramp; the board
+  // shows the fleet gross. Each site ramps softly after its own go-live.
+  const growthData = isBoard
+    ? revenueTimeline(cumulusFleet)
+    : revenueTimeline(devFleet).map((v) => Math.round(v * hostRatio));
 
-  const kpiCards =
-    role === 'owner'
-      ? [
-          { l: 'Vergütung', v: ca(fmtEurFull(kpis.hostPayoutEur)), s: splitLabel },
-          { l: '+ Wärme-Gutschrift', v: ca(fmtEurFull(kpis.heatCreditEur)), s: 'Heizkosten gespart / Mt' },
-          { l: '= Gesamtnutzen', v: ca(fmtEurFull(kpis.hostTotalBenefitEur)), s: 'weitgehend passiv / Mt' },
-          { l: 'Aktive Standorte', v: String(kpis.liveSites), s: `${kpis.totalCapacityKw} kW Rechenlast` },
-        ]
-      : [
-          { l: 'Live-Betrieb', v: `${liveNodes}/${nodes.length} Knoten`, s: `${liveJobs} Anfragen orchestriert` },
-          { l: 'Bruttoumsatz', v: ca(fmtEurFull(kpis.grossEur)), s: `≈ ${fmtEur(kpis.grossArrEur)} / Jahr` },
-          { l: 'Cumulus-Ergebnis', v: ca(fmtEurFull(kpis.cumulusResultEur)), s: 'nach Partner, Energie & Hardware' },
-          { l: 'Amortisation', v: `${kpis.paybackMonths} Mt`, s: `bei ${ca(fmtEurFull(kpis.capexEur))} Capex` },
-        ];
+  const kpiCards = !isBoard
+    ? [
+        { l: 'Vergütung', v: ca(fmtEurFull(kpis.hostPayoutEur)), s: splitLabel },
+        { l: '+ Wärme-Gutschrift', v: ca(fmtEurFull(kpis.heatCreditEur)), s: 'Heizkosten gespart / Mt' },
+        { l: '= Gesamtnutzen', v: ca(fmtEurFull(kpis.hostTotalBenefitEur)), s: 'weitgehend passiv / Mt' },
+        { l: 'Aktive Standorte', v: String(kpis.liveSites), s: `${kpis.totalCapacityKw} kW Rechenlast` },
+      ]
+    : [
+        { l: 'Live-Betrieb', v: `${liveNodes}/${nodes.length} Knoten`, s: `${liveJobs} Anfragen orchestriert` },
+        { l: 'Bruttoumsatz', v: ca(fmtEurFull(kpis.grossEur)), s: `≈ ${fmtEur(kpis.grossArrEur)} / Jahr` },
+        { l: 'Cumulus-Ergebnis', v: ca(fmtEurFull(kpis.cumulusResultEur)), s: 'nach Partner, Energie & Hardware' },
+        { l: 'Amortisation', v: `${kpis.paybackMonths} Mt`, s: `bei ${ca(fmtEurFull(kpis.capexEur))} Capex` },
+      ];
 
-  // Map content is role-aware: the owner sees only TAMAX candidates (no live
-  // node dots — that infra isn't theirs); the board sees the live nodes + the
-  // activated fleet across both regions.
-  const mapSites = role === 'owner' ? [] : sites;
-  const mapCands = role === 'owner' ? tamaxCands : allCands.filter((c) => addedSet.has(c.key));
-  const mapBounds = role === 'owner' ? TAMAX_BOUNDS : FLEET_BOUNDS;
+  // Map content is tab-aware: a developer tab shows only that developer's
+  // candidates (no live-node dots — that infra isn't theirs); the board shows the
+  // live nodes + the activated fleet across both regions.
+  const mapSites = isBoard ? sites : [];
+  const mapCands = isBoard ? allCands.filter((c) => addedSet.has(c.key)) : devCands;
+  const mapBounds = isBoard ? FLEET_BOUNDS : tab === 'sallier' ? SALLIER_BOUNDS : TAMAX_BOUNDS;
 
   const selected = cumulusFleet.find((s) => s.id === selId) ?? null;
   const previewCand = previewKey ? (allCands.find((c) => c.key === previewKey) ?? null) : null;
@@ -167,22 +176,36 @@ export default function BoardPage() {
       <header className="board-sticky mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
           <div className="b-wordmark text-2xl font-medium" style={{ color: 'var(--navy)' }}>
-            TAMAX <span style={{ color: 'var(--sand)' }}>×</span>{' '}
-            <span style={{ color: 'var(--gold)' }}>Cumulus</span>
+            {isBoard ? (
+              <>
+                Cumulus <span style={{ color: 'var(--sand)' }}>·</span>{' '}
+                <span style={{ color: 'var(--gold)' }}>Flotte</span>
+              </>
+            ) : (
+              <>
+                {dev.name} <span style={{ color: 'var(--sand)' }}>×</span>{' '}
+                <span style={{ color: 'var(--gold)' }}>Cumulus</span>
+              </>
+            )}
           </div>
           <div className="mt-0.5 text-sm" style={{ color: 'var(--slate)' }}>
-            Infrastruktur-Portfolio — Rechenleistung in Ihren Flächen
+            {isBoard
+              ? 'Cumulus Summary — Flotten-Performance aus allen Zuweisungen'
+              : `${dev.name} · Opportunity Simulator — Rechenleistung in Ihren Flächen`}
           </div>
         </div>
         <div className="flex items-center gap-4">
           <span className="inline-flex items-center gap-2 text-xs" style={{ color: 'var(--slate)' }}>
-            <span className="live-dot" /> Live · Berlin-Brandenburg
+            <span className="live-dot" /> Live · {isBoard ? 'alle Regionen' : dev.region}
           </span>
           <div className="seg" role="tablist" aria-label="Ansicht">
-            <button className={role === 'owner' ? 'active' : ''} onClick={() => setRole('owner')}>
-              TAMAX Opportunity Simulator
+            <button className={tab === 'tamax' ? 'active' : ''} onClick={() => setTab('tamax')}>
+              {TAMAX.name}
             </button>
-            <button className={role === 'board' ? 'active' : ''} onClick={() => setRole('board')}>
+            <button className={tab === 'sallier' ? 'active' : ''} onClick={() => setTab('sallier')}>
+              {SALLIER.name}
+            </button>
+            <button className={tab === 'board' ? 'active' : ''} onClick={() => setTab('board')}>
               Cumulus Summary
             </button>
           </div>
@@ -221,7 +244,7 @@ export default function BoardPage() {
         ))}
       </section>
 
-      {role === 'owner' && (
+      {!isBoard && (
         <p className="mb-4 -mt-1 text-xs leading-relaxed" style={{ color: 'var(--slate)' }}>
           Gesamtnutzen = Vergütung (Ergebnisanteil) + Wärme-Gutschrift. Die Vergütung ist weitgehend
           passiv; für die Wärmeauskopplung kann je nach Gebäude — v. a. im Bestand — eine einmalige
@@ -229,8 +252,8 @@ export default function BoardPage() {
         </p>
       )}
 
-      {/* ── Stellschrauben (owner tab only; the Cumulus view just consumes) ── */}
-      {role === 'owner' && (
+      {/* ── Stellschrauben (developer tabs only; the Cumulus view just consumes) ── */}
+      {!isBoard && (
         <section className="reveal mb-6" style={{ '--d': '300ms' } as React.CSSProperties}>
           <div className="b-card b-card-pad">
             <div className="b-kpi-label mb-3">Stellschrauben — wirken auf beide Ansichten</div>
@@ -268,9 +291,9 @@ export default function BoardPage() {
               Standortkarte
             </h2>
             <span className="text-xs" style={{ color: 'var(--slate)' }}>
-              {role === 'owner'
-                ? '○ TAMAX-Portfolio (anklicken für Vorschau)'
-                : '● Live-Knoten · ○ aktivierte Flotte'}
+              {isBoard
+                ? '● Live-Knoten · ○ aktivierte Flotte'
+                : `○ ${dev.name}-Portfolio (anklicken für Vorschau)`}
             </span>
           </div>
           {HAS_MAPBOX ? (
@@ -333,7 +356,7 @@ export default function BoardPage() {
           <div className="b-card b-card-pad reveal" style={{ '--d': '440ms' } as React.CSSProperties}>
             <div className="flex items-baseline justify-between">
               <h3 className="board-display text-base" style={{ color: 'var(--navy)' }}>
-                {role === 'owner' ? 'Ihr Anteil über Zeit' : 'Bruttoumsatz über Zeit'}
+                {isBoard ? 'Bruttoumsatz über Zeit' : 'Ihr Anteil über Zeit'}
               </h3>
               <span className="text-xs" style={{ color: 'var(--gold)' }}>
                 {ca(fmtEur(growthData[TL_NOW_INDEX] ?? 0))} → {ca(fmtEur(growthData[growthData.length - 1] ?? 0))}/Mt
@@ -344,26 +367,26 @@ export default function BoardPage() {
                 data={growthData}
                 nowIndex={TL_NOW_INDEX}
                 startYear={TL_START_YEAR}
-                color={role === 'owner' ? 'var(--gold)' : 'var(--navy)'}
+                color={isBoard ? 'var(--navy)' : 'var(--gold)'}
                 fmt={(v) => `${fmtEur(v)}/Mt`}
               />
             </div>
             <div className="mt-1 text-xs" style={{ color: 'var(--slate)' }}>
-              {role === 'owner'
-                ? 'Ihr Anteil wächst, sobald Ihre Flächen ans Netz gehen — weicher Hochlauf je Standort. Das KPI-Band oben zeigt das Ziel bei vollem Betrieb.'
-                : 'Rechenumsatz der Flotte über Zeit — jeder Standort rampt nach seinem Go-Live hoch. Das KPI-Band oben zeigt das Ziel bei vollem Betrieb.'}
+              {isBoard
+                ? 'Rechenumsatz der Flotte über Zeit — jeder Standort rampt nach seinem Go-Live hoch. Das KPI-Band oben zeigt das Ziel bei vollem Betrieb.'
+                : 'Ihr Anteil wächst, sobald Ihre Flächen ans Netz gehen — weicher Hochlauf je Standort. Das KPI-Band oben zeigt das Ziel bei vollem Betrieb.'}
             </div>
           </div>
         </div>
       </section>
 
-      {/* ── Role section ─────────────────────────────────────────────────── */}
-      {role === 'owner' ? (
+      {/* ── Tab section ──────────────────────────────────────────────────── */}
+      {!isBoard ? (
         <>
-          <OwnerSites sites={tamaxFleet} hostRatio={hostRatio} onSelect={setSelId} />
+          <OwnerSites sites={devFleet} hostRatio={hostRatio} onSelect={setSelId} />
           <PortfolioTable
-            title="TAMAX-Portfolio — Flächen anbinden"
-            cands={tamaxCands}
+            title={`${dev.name}-Portfolio — Flächen anbinden`}
+            cands={devCands}
             addedSet={addedSet}
             onToggle={toggleAdd}
             onEditKw={editKw}
@@ -374,29 +397,8 @@ export default function BoardPage() {
       ) : (
         <>
           <LiveOrchestration nodes={nodes} liveNodes={liveNodes} liveJobs={liveJobs} liveLeases={liveLeases} />
-          <FleetMix liveNodes={liveNodes} tamax={tamaxFleet.length} heide={heideFleet.length} kpis={cumulusKpis} />
+          <FleetMix liveNodes={liveNodes} tamax={tamaxFleet.length} sallier={sallierFleet.length} kpis={cumulusKpis} />
           <ExecSummary kpis={kpis} />
-          <section className="reveal mb-6" style={{ '--d': '600ms' } as React.CSSProperties}>
-            <div className="mb-2">
-              <h2 className="board-display text-lg" style={{ color: 'var(--navy)' }}>
-                Das Potenzial endet nicht an der Stadtgrenze
-              </h2>
-              <p className="mt-1 max-w-3xl text-sm leading-relaxed" style={{ color: 'var(--slate)' }}>
-                Dieselbe Mechanik trägt jedes Entwickler-Portfolio. <strong style={{ color: 'var(--ink)' }}>Heidewerk</strong>{' '}
-                ({HEIDEWERK.region}) ist ein zweiter Partner — binden Sie deren Flächen an, und Flotte,
-                Umsatz und Ergebnis oben wachsen mit.
-              </p>
-            </div>
-            <PortfolioTable
-              title={`Weitere Region — ${HEIDEWERK.name} · ${HEIDEWERK.region}`}
-              cands={heideCands}
-              addedSet={addedSet}
-              onToggle={toggleAdd}
-              onEditKw={editKw}
-              isOwner={false}
-              hostRatio={hostRatio}
-            />
-          </section>
         </>
       )}
 
@@ -406,7 +408,8 @@ export default function BoardPage() {
         Knoten und Status sind <strong style={{ color: 'var(--ink)' }}>live</strong> aus der
         Cumulus-Steuerung. Portfolio-Umsätze, Auslastung, Energie und der zeitliche Hochlauf sind für
         diese Vorschau <strong style={{ color: 'var(--ink)' }}>geschätzt</strong> — in Produktion an
-        echte Messung angebunden. Heidewerk ist ein fiktiver Beispiel-Partner.
+        echte Messung angebunden. {SALLIER.name} ist ein realer Entwickler der Region; die hier
+        gezeigte Projektliste und alle Rechenwerte sind illustrativ.
       </footer>
 
       {selected && <SiteDrawer site={selected} hostRatio={hostRatio} onClose={() => setSelId(null)} />}
@@ -475,18 +478,23 @@ function OwnerSites({ sites, hostRatio, onSelect }: { sites: Site[]; hostRatio: 
 }
 
 // ── Cumulus fleet composition (live + activated developer fleets) ────────────
-function FleetMix({ liveNodes, tamax, heide, kpis }: { liveNodes: number; tamax: number; heide: number; kpis: ReturnType<typeof boardKpis> }) {
+function FleetMix({ liveNodes, tamax, sallier, kpis }: { liveNodes: number; tamax: number; sallier: number; kpis: ReturnType<typeof boardKpis> }) {
   const items = [
     { l: 'Live-Knoten (real)', v: String(liveNodes) },
     { l: 'TAMAX-Flächen', v: String(tamax) },
-    { l: 'Heidewerk-Flächen', v: String(heide) },
+    { l: 'SALLIER-Flächen', v: String(sallier) },
     { l: 'Rechenlast gesamt', v: `${fmtNum(kpis.totalCapacityKw)} kW` },
     { l: 'GPUs', v: fmtNum(kpis.gpus) },
   ];
   return (
     <section className="reveal mb-6" style={{ '--d': '500ms' } as React.CSSProperties}>
       <div className="b-card b-card-pad">
-        <div className="b-kpi-label mb-3">Flotte aus den Entwickler-Zuweisungen</div>
+        <div className="b-kpi-label mb-2">Flotte aus den Entwickler-Zuweisungen</div>
+        <p className="mb-3 max-w-3xl text-sm leading-relaxed" style={{ color: 'var(--slate)' }}>
+          Cumulus bündelt mehrere Entwickler-Portfolios — <strong style={{ color: 'var(--ink)' }}>{TAMAX.name}</strong>{' '}
+          und <strong style={{ color: 'var(--ink)' }}>{SALLIER.name}</strong> — zu einer Flotte. Aktivieren Sie
+          Flächen in den jeweiligen Simulator-Tabs; das Potenzial endet nicht mit einem Partner.
+        </p>
         <div className="grid grid-cols-2 gap-x-8 gap-y-3 sm:grid-cols-5">
           {items.map((it) => (
             <div key={it.l}>
