@@ -291,6 +291,22 @@ export default function BoardPage() {
         </p>
       )}
 
+      {/* ── Flächen anbinden (top — the primary action: add buildings → KPIs update) ── */}
+      {!isBoard && (
+        <PortfolioTable
+          title={`${dev.name}-Portfolio — Flächen anbinden`}
+          cands={devCands}
+          addedSet={addedSet}
+          onToggle={toggleAdd}
+          onEditKw={editKw}
+          onEditCustom={editCustom}
+          onRemoveCustom={removeCustom}
+          onAddProject={() => addProject(dev.id)}
+          isOwner
+          hostRatio={hostRatio}
+        />
+      )}
+
       {/* ── Stellschrauben (developer tabs only; the Cumulus view just consumes) ── */}
       {!isBoard && (
         <section className="reveal mb-6" style={{ '--d': '300ms' } as React.CSSProperties}>
@@ -421,21 +437,7 @@ export default function BoardPage() {
 
       {/* ── Tab section ──────────────────────────────────────────────────── */}
       {!isBoard ? (
-        <>
-          <OwnerSites sites={devFleet} hostRatio={hostRatio} onSelect={setSelId} />
-          <PortfolioTable
-            title={`${dev.name}-Portfolio — Flächen anbinden`}
-            cands={devCands}
-            addedSet={addedSet}
-            onToggle={toggleAdd}
-            onEditKw={editKw}
-            onEditCustom={editCustom}
-            onRemoveCustom={removeCustom}
-            onAddProject={() => addProject(dev.id)}
-            isOwner
-            hostRatio={hostRatio}
-          />
-        </>
+        <OwnerSites sites={devFleet} hostRatio={hostRatio} onSelect={setSelId} />
       ) : (
         <>
           <LiveOrchestration nodes={nodes} liveNodes={liveNodes} liveJobs={liveJobs} liveLeases={liveLeases} />
@@ -668,16 +670,19 @@ function PortfolioTable({
 }) {
   const shown = (gross: number) => (isOwner ? hostShareOf(gross, hostRatio) : gross);
   const fixed = cands.filter((c) => !c.key.startsWith('custom:')).sort((a, b) => b.connectionKw - a.connectionKw);
-  const custom = cands.filter((c) => c.key.startsWith('custom:')); // creation order, kept at the bottom
+  const custom = cands.filter((c) => c.key.startsWith('custom:')); // creation order, shown at the top
   const nAdded = cands.filter((c) => addedSet.has(c.key)).length;
   const addedTotal = cands.filter((c) => addedSet.has(c.key)).reduce((a, c) => a + shown(c.grossEur), 0);
   const allTotal = cands.reduce((a, c) => a + shown(c.grossEur), 0);
   return (
-    <section className="reveal mb-2" style={{ '--d': '600ms' } as React.CSSProperties}>
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="board-display text-lg" style={{ color: 'var(--navy)' }}>
-          {title}
-        </h2>
+    <section className="reveal mb-6" style={{ '--d': '180ms' } as React.CSSProperties}>
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-3">
+          <h2 className="board-display text-lg" style={{ color: 'var(--navy)' }}>
+            {title}
+          </h2>
+          <button className="b-add-row" onClick={onAddProject}>+ Projekt hinzufügen</button>
+        </div>
         <span className="text-sm" style={{ color: 'var(--slate)' }}>
           {nAdded}/{cands.length} aktiviert ·{' '}
           <span style={{ color: 'var(--gold)', fontWeight: 600 }}>+ {ca(fmtEurFull(addedTotal))}/Monat</span>{' '}
@@ -685,7 +690,7 @@ function PortfolioTable({
         </span>
       </div>
       <div className="b-card overflow-hidden">
-        <div style={{ maxHeight: 460, overflowY: 'auto' }}>
+        <div className="b-table-scroll" style={{ maxHeight: 300, overflowY: 'auto' }}>
           <table className="b-table w-full text-sm">
             <thead>
               <tr style={{ borderBottom: '1px solid var(--line)' }}>
@@ -699,72 +704,58 @@ function PortfolioTable({
               </tr>
             </thead>
             <tbody>
-              {fixed.map((c) => {
+              {/* user-entered rows on top (immediately fillable), then the portfolio */}
+              {[...custom, ...fixed].map((c) => {
                 const on = addedSet.has(c.key);
+                const isC = c.key.startsWith('custom:');
                 return (
-                  <tr key={c.key} style={{ background: on ? 'rgba(169,132,63,.08)' : undefined }}>
+                  <tr key={c.key} style={{ background: on ? 'rgba(169,132,63,.08)' : isC ? 'rgba(0,26,69,.025)' : undefined }}>
                     <td>
-                      <div className="board-display" style={{ color: 'var(--navy)' }}>{c.name}</div>
-                      <div className="text-xs" style={{ color: 'var(--slate)' }}>{c.ort}</div>
-                    </td>
-                    <td>
-                      <span
-                        className="stage"
-                        style={{
-                          background: c.built ? 'rgba(0,26,69,.1)' : 'rgba(124,117,104,.14)',
-                          color: c.built ? 'var(--navy)' : 'var(--slate)',
-                        }}
-                      >
-                        {c.status}
-                      </span>
-                    </td>
-                    <td className="tabular-nums" style={{ color: c.goLive <= NOW_YEAR ? 'var(--navy)' : 'var(--slate)' }}>
-                      {c.goLive <= NOW_YEAR ? `seit ${c.goLive}` : `ab ${c.goLive}`}
-                    </td>
-                    <td className="text-right">
-                      <EditableKw value={c.connectionKw} onChange={(v) => onEditKw(c.key, v)} />
-                    </td>
-                    <td className="text-right tabular-nums" style={{ color: 'var(--slate)' }}>{fmtNum(c.computeKw)} kW</td>
-                    <td className="text-right tabular-nums" style={{ color: 'var(--ink)' }}>{ca(fmtEurFull(shown(c.grossEur)))}</td>
-                    <td className="text-right">
-                      <button
-                        className={on ? 'b-btn-primary' : 'b-btn-ghost'}
-                        style={{ padding: '0.3rem 0.7rem', fontSize: '0.75rem' }}
-                        onClick={() => onToggle(c.key)}
-                      >
-                        {on ? '✓ in Flotte' : '+ Flotte'}
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-
-              {/* user-entered ("Excel-like") rows — all four columns editable */}
-              {custom.map((c) => {
-                const on = addedSet.has(c.key);
-                return (
-                  <tr key={c.key} style={{ background: on ? 'rgba(169,132,63,.08)' : 'rgba(0,26,69,.025)' }}>
-                    <td>
-                      <input
-                        className="b-cell-input board-display"
-                        value={c.name}
-                        placeholder="Projektname…"
-                        onChange={(e) => onEditCustom(c.key, { name: e.target.value })}
-                      />
+                      {isC ? (
+                        <input
+                          className="b-cell-input board-display"
+                          value={c.name}
+                          placeholder="Projektname…"
+                          onChange={(e) => onEditCustom(c.key, { name: e.target.value })}
+                        />
+                      ) : (
+                        <>
+                          <div className="board-display" style={{ color: 'var(--navy)' }}>{c.name}</div>
+                          <div className="text-xs" style={{ color: 'var(--slate)' }}>{c.ort}</div>
+                        </>
+                      )}
                     </td>
                     <td>
-                      <select className="b-cell-select" value={c.status} onChange={(e) => onEditCustom(c.key, { status: e.target.value })}>
-                        {STATUS_OPTIONS.map((o) => (
-                          <option key={o} value={o}>{o}</option>
-                        ))}
-                      </select>
+                      {isC ? (
+                        <select className="b-cell-select" value={c.status} onChange={(e) => onEditCustom(c.key, { status: e.target.value })}>
+                          {STATUS_OPTIONS.map((o) => (
+                            <option key={o} value={o}>{o}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <span
+                          className="stage"
+                          style={{
+                            background: c.built ? 'rgba(0,26,69,.1)' : 'rgba(124,117,104,.14)',
+                            color: c.built ? 'var(--navy)' : 'var(--slate)',
+                          }}
+                        >
+                          {c.status}
+                        </span>
+                      )}
                     </td>
-                    <td>
-                      <select className="b-cell-select" value={c.goLive} onChange={(e) => onEditCustom(c.key, { goLive: parseInt(e.target.value) })}>
-                        {YEARS.map((y) => (
-                          <option key={y} value={y}>{y}</option>
-                        ))}
-                      </select>
+                    <td className={isC ? '' : 'tabular-nums'} style={isC ? undefined : { color: c.goLive <= NOW_YEAR ? 'var(--navy)' : 'var(--slate)' }}>
+                      {isC ? (
+                        <select className="b-cell-select" value={c.goLive} onChange={(e) => onEditCustom(c.key, { goLive: parseInt(e.target.value) })}>
+                          {YEARS.map((y) => (
+                            <option key={y} value={y}>{y}</option>
+                          ))}
+                        </select>
+                      ) : c.goLive <= NOW_YEAR ? (
+                        `seit ${c.goLive}`
+                      ) : (
+                        `ab ${c.goLive}`
+                      )}
                     </td>
                     <td className="text-right">
                       <EditableKw value={c.connectionKw} onChange={(v) => onEditKw(c.key, v)} />
@@ -780,21 +771,16 @@ function PortfolioTable({
                         >
                           {on ? '✓ in Flotte' : '+ Flotte'}
                         </button>
-                        <button className="b-icon-btn" title="Zeile entfernen" aria-label="Zeile entfernen" onClick={() => onRemoveCustom(c.key)}>
-                          ✕
-                        </button>
+                        {isC && (
+                          <button className="b-icon-btn" title="Zeile entfernen" aria-label="Zeile entfernen" onClick={() => onRemoveCustom(c.key)}>
+                            ✕
+                          </button>
+                        )}
                       </div>
                     </td>
                   </tr>
                 );
               })}
-
-              {/* add-a-line */}
-              <tr>
-                <td colSpan={7} style={{ padding: '0.45rem 0.6rem' }}>
-                  <button className="b-add-row" onClick={onAddProject}>+ Projekt hinzufügen</button>
-                </td>
-              </tr>
             </tbody>
           </table>
         </div>
